@@ -63,7 +63,7 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'files' | 'analysis'>('files');
 
-  const isAdmin = user?.email === "ghostytb77777@gmail.com";
+  const isAdmin = user?.email && ["ghostytb77777@gmail.com", "christianst731@gmail.com"].includes(user.email);
   const files = isGlobalMode ? globalFiles : personalFiles;
 
   // Load personal files

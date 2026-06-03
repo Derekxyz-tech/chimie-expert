@@ -162,7 +162,9 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
       networkRetryRef.current = 0; // Reset on success
       const transcript = event.results[0][0].transcript;
       if (queryHandlerRef.current) {
-        queryHandlerRef.current(transcript);
+        queryHandlerRef.current(transcript).catch((e) => {
+          console.error("Speech transcript query processing failed:", e);
+        });
       }
     };
 
