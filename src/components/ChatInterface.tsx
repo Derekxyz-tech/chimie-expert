@@ -42,8 +42,8 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
-  const [personalDocs, setPersonalDocs] = useState<{name: string, content: string}[]>([]);
-  const [globalDocs, setGlobalDocs] = useState<{name: string, content: string}[]>([]);
+  const [personalDocs, setPersonalDocs] = useState<{name: string, content: string, type?: string, size?: number, createdAt?: Date}[]>([]);
+  const [globalDocs, setGlobalDocs] = useState<{name: string, content: string, type?: string, size?: number, createdAt?: Date}[]>([]);
   const [selectedTerm, setSelectedTerm] = useState<ExplanatoryTerm | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("L'IA réfléchit...");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -127,11 +127,24 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
     // Load Global Knowledge Base (accessible to everyone)
     const qGlobal = query(collection(db, 'knowledge_base'));
     const unsubscribeGlobal = onSnapshot(qGlobal, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        name: doc.data().name,
-        content: doc.data().content,
-        createdAt: doc.data().createdAt?.toDate() || new Date()
-      }));
+      const docs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let uploadDate = new Date();
+        if (data.createdAt) {
+          if (typeof data.createdAt.toDate === 'function') {
+            uploadDate = data.createdAt.toDate();
+          } else if (data.createdAt instanceof Date) {
+            uploadDate = data.createdAt;
+          }
+        }
+        return {
+          name: data.name || '',
+          content: data.content || '',
+          type: data.type || 'text/plain',
+          size: data.size || 0,
+          createdAt: uploadDate
+        };
+      });
       // Sort latest first
       docs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       setGlobalDocs(docs);
@@ -144,10 +157,24 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
     if (user) {
       const qPersonal = query(collection(db, `users/${user.uid}/documents`));
       unsubscribePersonal = onSnapshot(qPersonal, (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({
-          name: doc.data().name,
-          content: doc.data().content
-        }));
+        const docs = snapshot.docs.map(doc => {
+          const data = doc.data();
+          let uploadDate = new Date();
+          if (data.createdAt) {
+            if (typeof data.createdAt.toDate === 'function') {
+              uploadDate = data.createdAt.toDate();
+            } else if (data.createdAt instanceof Date) {
+              uploadDate = data.createdAt;
+            }
+          }
+          return {
+            name: data.name || '',
+            content: data.content || '',
+            type: data.type || 'text/plain',
+            size: data.size || 0,
+            createdAt: uploadDate
+          };
+        });
         setPersonalDocs(docs);
       }, (error) => {
         console.warn("Personal docs subscription status/error:", error);
@@ -233,18 +260,87 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
         // Guest user message already added optimistically at start
       }
 
-      // 2. Get AI response
+      // 2. Get AI response (Optimisation RAG intelligente)
+      const normalizeStr = (str: string) => {
+        return str
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]/g, " ");
+      };
+
+      const stopWords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'en', 'ce', 'que', 'qui', 'est', 'pour', 'dans', 'par', 'sur', 'avec', 'aux'];
+      const keywords = currentInput.toLowerCase()
+        .replace(/[?.!,;]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 2 && !stopWords.includes(w));
+      
+      const scoredDocs = allDocuments.map(d => {
+        const normName = normalizeStr(d.name);
+        const normContent = normalizeStr(d.content);
+        const normQuery = normalizeStr(currentInput);
+        
+        let score = 0;
+        
+        // Correspondance parfaite de nom de fichier
+        if (normQuery.length > 3 && normName.includes(normQuery)) {
+          score += 100;
+        }
+        
+        keywords.forEach(k => {
+          const normK = normalizeStr(k);
+          if (normName.includes(normK)) {
+            score += 40;
+          }
+          const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+          if (!isImg) {
+            const count = normContent.split(normK).length - 1;
+            score += Math.min(count * 5, 50);
+          }
+        });
+
+        const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+        if (isImg) {
+          const isImageQuery = /image|affiche|montre|génère|dessine|photo|regarder|voir|schema|schéma/i.test(currentInput);
+          if (isImageQuery) {
+            score += 15;
+          }
+        }
+        
+        return { ...d, score };
+      });
+
+      let relevantDocs = scoredDocs
+        .filter(d => d.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+
+      if (relevantDocs.length === 0) {
+        relevantDocs = allDocuments.slice(0, 4).map(d => ({ ...d, score: 0 }));
+      }
+
+      const allFilesList = allDocuments
+        .map((d, i) => `- [${d.name}] (${d.type?.startsWith('image/') ? 'Image / Visuel' : 'Document de Cours'})`)
+        .join('\n');
+
       const context = allDocuments.length > 0 
-        ? `CONTEXTE (DOCUMENTS FOURNIS PAR L'ADMIN ET L'UTILISATEUR):\n${(allDocuments || []).map((d: any) => {
-            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
-            if (isImg) {
-              return `--- DOCUMENT IMAGE CHARGÉ DANS LA BASE DE DONNÉES ---
-Nom du fichier image : ${d.name}
-Description / Type d'image : ${d.type || 'image/jpeg'}
-Instructions d'affichage : Il s'agit d'une image stockée dans la base de données. Si l'utilisateur te demande de générer, d'afficher ou de présenter cette image (ou une séquence contenant cette image), tu dois ABSOLUMENT inclure la balise exacte [[IMAGE:${d.name}]] à l'endroit approprié sans modifier son nom de fichier.`;
-            }
-            return `--- DOCUMENT TEXTUEL: ${d.name} ---\n${d.content}`;
-          }).join('\n\n')}`
+        ? `LISTE COMPLÈTE DE TOU(TE)S LES FICHIERS ET IMAGES DANS LA BASE DE DONNÉES (${allDocuments.length} ELEMENTS) :
+${allFilesList}
+
+---
+
+DÉTAILS CONTEXTUELS ET CONTENUS DE VERITÉ :
+${relevantDocs.map(d => {
+  const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+  if (isImg) {
+    return `[DOCUMENT IMAGE RECONNU]
+Nom du fichier : ${d.name}
+Type d'image : ${d.type || 'image/jpeg'}
+Instructions d'affichage : Si l'utilisateur veut voir cette image ou ce schéma (ou demande "affiche l'image" ou "montre"), écris le tag exact [[IMAGE:${d.name}]] à la fin ou au sein de ta réponse. C'est le seul moyen pour l'application d'afficher l'IMAGE RÉELLE de la base de données. Il est prioritaire d'indiquer cette balise.`;
+  }
+  return `[Fichier : ${d.name}]
+${d.content}`;
+}).join('\n\n')}`
         : "AUCUN DOCUMENT FOURNI.";
 
       const history = (messages || [])

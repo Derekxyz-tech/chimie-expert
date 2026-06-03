@@ -114,12 +114,24 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
     // Load Global Knowledge Base
     const qGlobal = query(collection(db, 'knowledge_base'));
     const unsubscribeGlobal = onSnapshot(qGlobal, (snapshot) => {
-      const docs = (snapshot.docs || []).map(doc => ({
-        name: doc.data().name,
-        content: doc.data().content,
-        type: doc.data().type,
-        createdAt: doc.data().createdAt?.toDate() || new Date()
-      }));
+      const docs = (snapshot.docs || []).map(doc => {
+        const data = doc.data();
+        let uploadDate = new Date();
+        if (data.createdAt) {
+          if (typeof data.createdAt.toDate === 'function') {
+            uploadDate = data.createdAt.toDate();
+          } else if (data.createdAt instanceof Date) {
+            uploadDate = data.createdAt;
+          }
+        }
+        return {
+          name: data.name || '',
+          content: data.content || '',
+          type: data.type || 'text/plain',
+          size: data.size || 0,
+          createdAt: uploadDate
+        };
+      });
       // Sort latest first
       docs.sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
       setGlobalDocs(docs);
@@ -132,11 +144,24 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
     if (user) {
       const qPersonal = query(collection(db, `users/${user.uid}/documents`));
       unsubscribePersonal = onSnapshot(qPersonal, (snapshot) => {
-        const docs = (snapshot.docs || []).map(doc => ({
-          name: doc.data().name,
-          content: doc.data().content,
-          type: doc.data().type
-        }));
+        const docs = (snapshot.docs || []).map(doc => {
+          const data = doc.data();
+          let uploadDate = new Date();
+          if (data.createdAt) {
+            if (typeof data.createdAt.toDate === 'function') {
+              uploadDate = data.createdAt.toDate();
+            } else if (data.createdAt instanceof Date) {
+              uploadDate = data.createdAt;
+            }
+          }
+          return {
+            name: data.name || '',
+            content: data.content || '',
+            type: data.type || 'text/plain',
+            size: data.size || 0,
+            createdAt: uploadDate
+          };
+        });
         setPersonalDocs(docs);
       }, (error) => {
         console.warn("Personal docs subscription status/error:", error);
@@ -313,60 +338,89 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
         }).catch(() => {});
       }
 
-      // Optimisation : Filtrage ultra-agressif du contexte (RAG simplifié)
-      // On garde les mots de >= 2 caractères pour inclure les symboles chimiques (Fe, Cu, O2...)
-      // En excluant les mots de liaison communs en français
-      const stopWords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'en', 'ce', 'que', 'qui', 'est', 'pour'];
+      // Optimisation : Filtrage intelligent du contexte (RAG amélioré sémantiquement)
+      const normalizeStr = (str: string) => {
+        return str
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]/g, " ");
+      };
+
+      const stopWords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'en', 'ce', 'que', 'qui', 'est', 'pour', 'dans', 'par', 'sur', 'avec', 'aux'];
       const keywords = queryText.toLowerCase()
         .replace(/[?.!,;]/g, ' ')
         .split(/\s+/)
         .filter(w => w.length >= 2 && !stopWords.includes(w));
       
-      let relevantDocs = allDocs;
-      
-      if (keywords.length > 0) {
-        relevantDocs = allDocs
-          .map(d => {
-            const lowName = d.name.toLowerCase();
-            const lowContent = d.content.toLowerCase();
-            let score = 0;
-            keywords.forEach(k => {
-              // Bonus de score si le mot clé est dans le titre
-              if (lowName.includes(k)) score += 15;
-              // Recherche par mot entier dans le contenu pour éviter les faux positifs partiels
-              const regex = new RegExp(`\\b${k}\\b`, 'i');
-              if (regex.test(lowContent)) score += 5;
-              else if (lowContent.includes(k)) score += 1;
-            });
-            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
-            if (isImg && (queryText.toLowerCase().includes('image') || queryText.toLowerCase().includes('génère') || queryText.toLowerCase().includes('affiche') || queryText.toLowerCase().includes('séquence'))) {
-              score += 12;
-            }
-            return { ...d, score };
-          })
-          .filter(d => d.score > 0)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 5); // Augmenté à 5 pour plus de sécurité
+      const scoredDocs = allDocs.map(d => {
+        const normName = normalizeStr(d.name);
+        const normContent = normalizeStr(d.content);
+        const normQuery = normalizeStr(queryText);
         
-        if (relevantDocs.length === 0) relevantDocs = allDocs.slice(0, 2);
-      } else {
-        relevantDocs = allDocs.slice(0, 3);
+        let score = 0;
+        
+        // Correspondance parfaite de nom de fichier
+        if (normQuery.length > 3 && normName.includes(normQuery)) {
+          score += 100;
+        }
+        
+        keywords.forEach(k => {
+          const normK = normalizeStr(k);
+          if (normName.includes(normK)) {
+            score += 40;
+          }
+          const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+          if (!isImg) {
+            const count = normContent.split(normK).length - 1;
+            score += Math.min(count * 5, 50);
+          }
+        });
+
+        const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+        if (isImg) {
+          const isImageQuery = /image|affiche|montre|génère|dessine|photo|regarder|voir|schema|schéma/i.test(queryText);
+          if (isImageQuery) {
+            score += 15;
+          }
+        }
+        
+        return { ...d, score };
+      });
+
+      let relevantDocs = scoredDocs
+        .filter(d => d.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+
+      if (relevantDocs.length === 0) {
+        relevantDocs = allDocs.slice(0, 4).map(d => ({ ...d, score: 0 }));
       }
 
       setScannedCount(relevantDocs.length);
       setLoadingStatus("Synthèse...");
-      const context = relevantDocs.length > 0 
-        ? `CONTEXTE:\n${relevantDocs.map(d => {
-            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
-            if (isImg) {
-              return `--- DOCUMENT IMAGE RECONNU DANS LA BASE DE DONNÉES ---
-Nom du fichier image : ${d.name}
-Description / Type : ${d.type || 'image/jpeg'}
-Instructions : Si l'utilisateur demande à voir, générer ou afficher cette image (ou une séquence d'images), insère obligatoirement le tag [[IMAGE:${d.name}]] à la fin de ta réponse d'ici. C'est le seul moyen pour l'application d'afficher l'image réelle.`;
-            }
-            return `[${d.name}]\n${d.content}`;
-          }).join('\n\n')}`
-        : "PAS DE DOCUMENTS.";
+      
+      const allFilesList = allDocs
+        .map((d, i) => `- [${d.name}] (${d.type?.startsWith('image/') ? 'Image / Visuel' : 'Document de Cours'})`)
+        .join('\n');
+
+      const context = `LISTE COMPLÈTE DE TOU(TE)S LES FICHIERS ET IMAGES DANS LA BASE DE DONNÉES (${allDocs.length} ELEMENTS) :
+${allFilesList}
+
+---
+
+DÉTAILS CONTEXTUELS ET CONTENUS DE VERITÉ :
+${relevantDocs.map(d => {
+  const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+  if (isImg) {
+    return `[DOCUMENT IMAGE RECONNU]
+Nom du fichier : ${d.name}
+Type d'image : ${d.type || 'image/jpeg'}
+Instructions d'affichage : Si l'utilisateur veut voir cette image ou ce schéma (ou demande "affiche l'image" ou "montre"), écris le tag exact [[IMAGE:${d.name}]] à la fin ou au sein de ta réponse. C'est le seul moyen pour l'application d'afficher l'IMAGE RÉELLE de la base de données. Il est prioritaire d'indiquer cette balise.`;
+  }
+  return `[Fichier : ${d.name}]
+${d.content}`;
+}).join('\n\n')}`;
 
       setDisplayedResponse("");
       

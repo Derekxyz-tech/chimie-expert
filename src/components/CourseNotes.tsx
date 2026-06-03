@@ -75,16 +75,31 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     }
 
     const q = query(
-      collection(db, `users/${user.uid}/documents`),
-      orderBy('createdAt', 'desc')
+      collection(db, `users/${user.uid}/documents`)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = (snapshot.docs || []).map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        uploadDate: (doc.data().createdAt as any)?.toDate() || new Date()
-      })) as CourseFile[];
+      const docs = (snapshot.docs || []).map(doc => {
+        const data = doc.data();
+        let uploadDate = new Date();
+        if (data.createdAt) {
+          if (typeof data.createdAt.toDate === 'function') {
+            uploadDate = data.createdAt.toDate();
+          } else if (data.createdAt instanceof Date) {
+            uploadDate = data.createdAt;
+          }
+        }
+        return {
+          id: doc.id,
+          name: data.name || '',
+          content: data.content || '',
+          type: data.type || 'text/plain',
+          size: data.size || 0,
+          uploadDate
+        };
+      }) as CourseFile[];
+      // Sort in-memory latest first
+      docs.sort((a, b) => (b.uploadDate?.getTime?.() || 0) - (a.uploadDate?.getTime?.() || 0));
       setPersonalFiles(docs);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/documents`, false);
