@@ -73,8 +73,8 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [history, setHistory] = useState<TeacherMessage[]>([]);
-  const [personalDocs, setPersonalDocs] = useState<{name: string, content: string}[]>([]);
-  const [globalDocs, setGlobalDocs] = useState<{name: string, content: string}[]>([]);
+  const [personalDocs, setPersonalDocs] = useState<{name: string, content: string, type?: string}[]>([]);
+  const [globalDocs, setGlobalDocs] = useState<{name: string, content: string, type?: string}[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [activeDisclaimer, setActiveDisclaimer] = useState<string | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -117,6 +117,7 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
       const docs = (snapshot.docs || []).map(doc => ({
         name: doc.data().name,
         content: doc.data().content,
+        type: doc.data().type,
         createdAt: doc.data().createdAt?.toDate() || new Date()
       }));
       // Sort latest first
@@ -133,7 +134,8 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
       unsubscribePersonal = onSnapshot(qPersonal, (snapshot) => {
         const docs = (snapshot.docs || []).map(doc => ({
           name: doc.data().name,
-          content: doc.data().content
+          content: doc.data().content,
+          type: doc.data().type
         }));
         setPersonalDocs(docs);
       }, (error) => {
@@ -336,6 +338,10 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
               if (regex.test(lowContent)) score += 5;
               else if (lowContent.includes(k)) score += 1;
             });
+            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+            if (isImg && (queryText.toLowerCase().includes('image') || queryText.toLowerCase().includes('génère') || queryText.toLowerCase().includes('affiche') || queryText.toLowerCase().includes('séquence'))) {
+              score += 12;
+            }
             return { ...d, score };
           })
           .filter(d => d.score > 0)
@@ -350,7 +356,16 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
       setScannedCount(relevantDocs.length);
       setLoadingStatus("Synthèse...");
       const context = relevantDocs.length > 0 
-        ? `CONTEXTE:\n${relevantDocs.map(d => `[${d.name}]\n${d.content}`).join('\n\n')}`
+        ? `CONTEXTE:\n${relevantDocs.map(d => {
+            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+            if (isImg) {
+              return `--- DOCUMENT IMAGE RECONNU DANS LA BASE DE DONNÉES ---
+Nom du fichier image : ${d.name}
+Description / Type : ${d.type || 'image/jpeg'}
+Instructions : Si l'utilisateur demande à voir, générer ou afficher cette image (ou une séquence d'images), insère obligatoirement le tag [[IMAGE:${d.name}]] à la fin de ta réponse d'ici. C'est le seul moyen pour l'application d'afficher l'image réelle.`;
+            }
+            return `[${d.name}]\n${d.content}`;
+          }).join('\n\n')}`
         : "PAS DE DOCUMENTS.";
 
       setDisplayedResponse("");
@@ -381,6 +396,7 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
              - Si la question porte sur la CHIMIE ou la PHYSIQUE mais que l'info est ABSENTE du contexte : Réponds que l'info n'est pas dans les archives, mais PROPOSE explicitement de donner l'information via tes connaissances générales en précisant qu'elle ne sera pas vérifiée par le collège.
              - Si la question est HORS-SUJET (culture générale, quotidien, etc.) : Réponds que c'est en dehors de ton champ de compétence et que tu es limité exclusivement aux sujets de CHIMIE.
           4. [FALLBACK] : Si l'utilisateur accepte ta proposition ou si tu donnes une info hors-contexte, commence OBLIGATOIREMENT par "[FALLBACK]".
+          5. IMAGES & VISUELS : Si on te demande de générer ou d'afficher une image ou séquence d'images présente dans le CONTEXTE, insère le tag [[IMAGE:nom_du_fichier]] correspondant pour l'image.
           
           ${context}`
         }
@@ -521,6 +537,59 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
         }
       }, 150);
     }
+  };
+
+  const renderTeacherResponse = (text: string) => {
+    // Split by image tags like [[IMAGE:example.jpg]]
+    const parts = text.split(/(\[\[IMAGE:.*?\]\])/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('[[IMAGE:') && part.endsWith(']]')) {
+        const imageName = part.slice(8, -2).trim();
+        const found = [...globalDocs, ...personalDocs].find(
+          d => d.name.toLowerCase() === imageName.toLowerCase()
+        );
+        if (found && found.content && (found.content.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(found.name))) {
+          return (
+            <span key={i} className="block my-4 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md max-w-sm mx-auto relative group">
+              <img 
+                src={found.content} 
+                alt={found.name} 
+                className="w-full h-auto object-contain max-h-60" 
+                referrerPolicy="no-referrer"
+              />
+              <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 backdrop-blur-sm p-2 text-white flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                <span className="text-[10px] font-bold truncate pr-3">{found.name}</span>
+                <a 
+                  href={found.content} 
+                  download={found.name}
+                  className="text-[9px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2 py-1 rounded animate-none shadow-none"
+                >
+                  Télécharger
+                </a>
+              </span>
+            </span>
+          );
+        } else {
+          return (
+            <span key={i} className="block my-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-200">
+              ⚠️ Image: <strong>{imageName}</strong> introuvable.
+            </span>
+          );
+        }
+      }
+      return (
+        <ReactMarkdown 
+          key={i}
+          remarkPlugins={[remarkMath]} 
+          rehypePlugins={[rehypeKatex]}
+          components={{
+            p: ({ children }) => <span className="inline whitespace-pre-wrap">{children}</span>
+          }}
+        >
+          {part}
+        </ReactMarkdown>
+      );
+    });
   };
 
   return (
@@ -762,17 +831,9 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
                         animate={{ opacity: 1, y: 0 }}
                         className="space-y-4"
                       >
-                        <p className="text-lg md:text-2xl text-slate-900 leading-tight font-bold tracking-tight">
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkMath]} 
-                            rehypePlugins={[rehypeKatex]}
-                            components={{
-                              p: ({ children }) => <span className="inline whitespace-pre-wrap">{children}</span>
-                            }}
-                          >
-                            {displayedResponse}
-                          </ReactMarkdown>
-                        </p>
+                        <div className="text-lg md:text-2xl text-slate-900 leading-tight font-bold tracking-tight">
+                          {renderTeacherResponse(displayedResponse)}
+                        </div>
                       </motion.div>
                     ) : (
                       <motion.p key="idle" className="text-slate-400 text-lg font-medium">

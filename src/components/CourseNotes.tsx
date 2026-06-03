@@ -14,7 +14,8 @@ import {
   List as ListIcon,
   ChevronRight,
   FileSearch,
-  PanelLeftOpen
+  PanelLeftOpen,
+  FileImage
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -92,6 +93,48 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     return () => unsubscribe();
   }, [user]);
 
+  // Set global mode to true for admins by default so they upload to and read the global folder automatically
+  useEffect(() => {
+    if (user && isAdmin) {
+      setIsGlobalMode(true);
+    }
+  }, [user, isAdmin]);
+
+  // Automatic sync/migration of accidental personal uploads by any admin to the global database
+  useEffect(() => {
+    if (user && isAdmin && personalFiles.length > 0 && globalFiles.length > 0) {
+      const migrateAccidentalUploads = async () => {
+        for (const file of personalFiles) {
+          const alreadyExists = globalFiles.some(
+            (gf) => gf.name.toLowerCase() === file.name.toLowerCase() || gf.content === file.content
+          );
+          if (!alreadyExists) {
+            console.log(`Auto-migrating accidental personal upload "${file.name}" to global custom database`);
+            try {
+              await addDoc(collection(db, 'knowledge_base'), {
+                uid: user.uid,
+                name: file.name,
+                content: file.content,
+                type: file.type || 'text/plain',
+                size: file.size || 0,
+                createdAt: serverTimestamp()
+              });
+            } catch (err) {
+              console.error(`Failed to migrate "${file.name}" to knowledge_base:`, err);
+            }
+          }
+          // Now safely clean up the personal document to prevent duplicate counts and confusion
+          try {
+            await deleteDoc(doc(db, `users/${user.uid}/documents`, file.id));
+          } catch (err) {
+            console.error(`Failed to clean up duplicate personal document "${file.name}":`, err);
+          }
+        }
+      };
+      migrateAccidentalUploads();
+    }
+  }, [user, isAdmin, personalFiles, globalFiles]);
+
   // Load global files
   useEffect(() => {
     const q = query(collection(db, 'knowledge_base'));
@@ -144,6 +187,13 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
           const arrayBuffer = await file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           text = result.value;
+        } else if (file.type.startsWith('image/')) {
+          text = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
         } else {
           text = await file.text();
         }
@@ -170,7 +220,10 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt']
+      'text/plain': ['.txt'],
+      'image/jpeg': ['.jpeg', '.jpg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
     }
   });
 
@@ -445,12 +498,27 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                             )}
                           >
                             <div className="flex items-start justify-between mb-4">
-                              <div className={cn(
-                                "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                                selectedFileIds.includes(file.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600'
-                              )}>
-                                <FileText className="w-5 h-5" />
-                              </div>
+                              {file.type?.startsWith('image/') && file.content?.startsWith('data:image/') ? (
+                                <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-50 relative group-hover:scale-105 transition-transform duration-300">
+                                  <img 
+                                    src={file.content} 
+                                    alt={file.name} 
+                                    className="w-full h-full object-cover" 
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </div>
+                              ) : (
+                                <div className={cn(
+                                  "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                                  selectedFileIds.includes(file.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600'
+                                )}>
+                                  {file.type === 'application/pdf' ? (
+                                    <BookOpen className="w-5 h-5" />
+                                  ) : (
+                                    <FileText className="w-5 h-5" />
+                                  )}
+                                </div>
+                              )}
                               <div className="flex items-center gap-1">
                                 {selectedFileIds.includes(file.id) && (
                                   <CheckCircle2 className="w-5 h-5 text-indigo-600" />
@@ -516,13 +584,28 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
-                                  <div className={cn(
-                                    "w-8 h-8 rounded-lg flex items-center justify-center",
-                                    selectedFileIds.includes(file.id) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
-                                  )}>
-                                    <FileText className="w-4 h-4" />
-                                  </div>
-                                  <span className="text-sm font-bold text-slate-900">{file.name}</span>
+                                  {file.type?.startsWith('image/') && file.content?.startsWith('data:image/') ? (
+                                    <div className="w-8 h-8 rounded overflow-hidden border border-slate-200 bg-slate-50 flex-shrink-0">
+                                      <img 
+                                        src={file.content} 
+                                        alt={file.name} 
+                                        className="w-full h-full object-cover" 
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className={cn(
+                                      "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
+                                      selectedFileIds.includes(file.id) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                                    )}>
+                                      {file.type === 'application/pdf' ? (
+                                        <BookOpen className="w-4 h-4" />
+                                      ) : (
+                                        <FileText className="w-4 h-4" />
+                                      )}
+                                    </div>
+                                  )}
+                                  <span className="text-sm font-bold text-slate-900 truncate">{file.name}</span>
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-xs text-slate-500">{formatSize(file.size)}</td>

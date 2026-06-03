@@ -18,7 +18,11 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.token.email in ["ghostytb77777@gmail.com", "christianst731@gmail.com", "cyrillealexandrinahall@gmail.com"];
+      return isAuthenticated() && (
+        request.auth.token.email == "ghostytb77777@gmail.com" ||
+        request.auth.token.email == "christianst731@gmail.com" ||
+        request.auth.token.email == "cyrillealexandrinahall@gmail.com"
+      );
     }
 
     function isValidString(val, min, max) {
@@ -49,6 +53,11 @@ service cloud.firestore {
     function isValidFile(data) {
       return data.keys().hasAll(['uid', 'name', 'content', 'createdAt']) &&
              data.uid == request.auth.uid &&
+             isValidString(data.name, 1, 255);
+    }
+
+    function isValidGlobalFile(data) {
+      return data.keys().hasAll(['uid', 'name', 'content', 'createdAt']) &&
              isValidString(data.name, 1, 255);
     }
 
@@ -89,8 +98,8 @@ service cloud.firestore {
 
     match /knowledge_base/{docId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidFile(request.resource.data);
-      allow update: if isAdmin() && isValidFile(request.resource.data);
+      allow create: if isAdmin() && isValidGlobalFile(request.resource.data);
+      allow update: if isAdmin() && isValidGlobalFile(request.resource.data);
       allow delete: if isAdmin();
     }
   }

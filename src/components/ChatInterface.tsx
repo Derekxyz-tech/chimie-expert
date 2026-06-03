@@ -235,7 +235,16 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
 
       // 2. Get AI response
       const context = allDocuments.length > 0 
-        ? `CONTEXTE (DOCUMENTS FOURNIS PAR L'ADMIN ET L'UTILISATEUR):\n${(allDocuments || []).map((d: any) => `--- DOCUMENT: ${d.name} ---\n${d.content}`).join('\n\n')}`
+        ? `CONTEXTE (DOCUMENTS FOURNIS PAR L'ADMIN ET L'UTILISATEUR):\n${(allDocuments || []).map((d: any) => {
+            const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+            if (isImg) {
+              return `--- DOCUMENT IMAGE CHARGÉ DANS LA BASE DE DONNÉES ---
+Nom du fichier image : ${d.name}
+Description / Type d'image : ${d.type || 'image/jpeg'}
+Instructions d'affichage : Il s'agit d'une image stockée dans la base de données. Si l'utilisateur te demande de générer, d'afficher ou de présenter cette image (ou une séquence contenant cette image), tu dois ABSOLUMENT inclure la balise exacte [[IMAGE:${d.name}]] à l'endroit approprié sans modifier son nom de fichier.`;
+            }
+            return `--- DOCUMENT TEXTUEL: ${d.name} ---\n${d.content}`;
+          }).join('\n\n')}`
         : "AUCUN DOCUMENT FOURNI.";
 
       const history = (messages || [])
@@ -255,6 +264,10 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
         config: {
           systemInstruction: `Tu es Chimie Expert, un assistant spécialisé opérant STRICTEMENT ET EXCLUSIVEMENT sur la base des documents de cours fournis dans le CONTEXTE.
           
+          RÈGLES CRITIQUES SUR LES IMAGES:
+          1. Si l'utilisateur demande de générer, afficher, dessiner ou de montrer une image/schéma disponible dans les documents de cours (par exemple une structure moléculaire, un diagramme d'oxydation, etc.), trouve le nom de fichier correspondant dans le CONTEXTE et insère EXACTEMENT ceci: [[IMAGE:nom_du_fichier.extension]] dans ton explication. C'est le seul moyen pour l'interface utilisateur d'afficher l'image réelle.
+          2. Tu peux lister une suite de plusieurs balises [[IMAGE:nom_du_fichier]] successives s'il demande une séquence d'images.
+          
           RÈGLE D'OR (ZÉRO CONNAISSANCE EXTERNE): 
           1. Tu ne dois répondre qu'en utilisant les informations textuelles contenues dans le CONTEXTE fourni ci-dessous.
           2. GESTION DES MANQUES :
@@ -265,7 +278,7 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
           5. Si aucun document n'est fourni, explique que tu attends que des fiches soient ajoutées pour pouvoir répondre.
           6. NE COMMENCE JAMAIS tes phrases par "Selon vos documents", "D'après les textes" ou toute mention de la source. Réponds directement.
           7. UNIQUEMENT SI on te demande tes sources, réponds : "Mes sources proviennent du Collège Catts Pressoir." Ne cite jamais le nom des fichiers.
-
+ 
           ANNOTATION DE TERMES CLÉS:
           Identifie les termes techniques expliqués dans le CONTEXTE (atomes, molécules, concepts). 
           Formate-les EXACTEMENT comme ceci: [[Mot|Définition courte|TypeModel]]
@@ -275,13 +288,13 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
           Exemple 1: "L'[[eau|Substance chimique composée de molécules H2O.|molecule]] est un solvant."
           Exemple 2: "Le [[pH|Mesure de l'acidité ou de la basicité d'une solution.|general]] de cette solution est de 7."
           Exemple 3: "Le [[carbone|Élément chimique de base de la chimie organique.|atom]] possède 4 électrons de valence."
-
+ 
           ${context}
           
           DIRECTIVES DE RÉPONSE:
           1. Utilise le format Markdown pour la mise en forme.
           2. Pour TOUTES les formules chimiques et équations, utilise le format LaTeX ($H_2O$, etc.).
-          3. Sois précis dans tes explications en synthétisant les informations des documents.
+          3. Sois précis dans tes explications en synthétisent les informations des documents.
           4. NE CITE PAS le nom des fichiers sources dans ta réponse, SAUF si l'utilisateur te le demande explicitement.
           5. MODÉLISATION 3D : Si l'utilisateur demande de voir une molécule ou si c'est pertinent, ajoute UNIQUEMENT à la toute fin de ta réponse un bloc [MOLECULE_DATA] avec le JSON suivant : 
              { "name": "Nom", "formula": "Formule", "nodes": [{"id": 0, "element": "C", "position": [0,0,0]}], "links": [{"source": 0, "target": 1}] }
@@ -543,6 +556,7 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
                             animate={msg.id === animatingMessageId} 
                             onComplete={() => setAnimatingMessageId(null)}
                             onSelectTerm={setSelectedTerm}
+                            allDocuments={allDocuments}
                           />
                         ) : (
                           <span className="whitespace-pre-wrap">{msg.content}</span>
@@ -719,12 +733,14 @@ function TypewriterMarkdown({
   content, 
   animate, 
   onComplete,
-  onSelectTerm
+  onSelectTerm,
+  allDocuments = []
 }: { 
   content: string, 
   animate?: boolean, 
   onComplete?: () => void,
-  onSelectTerm: (term: ExplanatoryTerm) => void
+  onSelectTerm: (term: ExplanatoryTerm) => void,
+  allDocuments?: any[]
 }) {
   const [displayedText, setDisplayedText] = useState(animate ? '' : content);
   const indexRef = useRef(animate ? 0 : content.length);
@@ -769,6 +785,42 @@ function TypewriterMarkdown({
       // Handle Full Token
       if (part.startsWith('[[') && part.endsWith(']]')) {
         const inner = part.slice(2, -2);
+        
+        if (inner.startsWith('IMAGE:')) {
+          const imageName = inner.slice(6).trim();
+          const found = (allDocuments || []).find(
+            d => d.name.toLowerCase() === imageName.toLowerCase()
+          );
+          if (found && found.content && (found.content.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(found.name))) {
+            return (
+              <span key={i} className="block my-4 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md max-w-sm mx-auto relative group whitespace-normal">
+                <img 
+                  src={found.content} 
+                  alt={found.name} 
+                  className="w-full h-auto object-contain max-h-60" 
+                  referrerPolicy="no-referrer"
+                />
+                <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 backdrop-blur-sm p-2 text-white flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <span className="text-[10px] font-bold truncate pr-3">{found.name}</span>
+                  <a 
+                    href={found.content} 
+                    download={found.name}
+                    className="text-[9px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2 py-1 rounded"
+                  >
+                    Télécharger
+                  </a>
+                </span>
+              </span>
+            );
+          } else {
+            return (
+              <span key={i} className="block my-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-200 whitespace-normal">
+                ⚠️ Image: <strong>{imageName}</strong> introuvable dans la base de données.
+              </span>
+            );
+          }
+        }
+
         const [term, definition, modelType] = inner.split('|');
         return (
           <button
@@ -788,6 +840,9 @@ function TypewriterMarkdown({
       
       // Handle Partial Token at the end (Hide the brackets during typing)
       if (part.startsWith('[[')) {
+        if (part.includes('IMAGE:')) {
+          return <span key={i} className="text-xs text-indigo-500 animate-pulse">Chargement de l'image...</span>;
+        }
         const partial = part.slice(2);
         // Extract only the term part (before the first | if it exists)
         const termOnly = partial.split('|')[0];
