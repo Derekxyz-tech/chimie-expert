@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == "ghostytb77777@gmail.com";
+    }
+
+    function isValidString(val, min, max) {
+      return val is string && val.size() >= min && val.size() <= max;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid == request.auth.uid &&
+             data.email is string;
+    }
+
+    function isValidConversation(data) {
+      return data.keys().hasAll(['title', 'createdAt', 'updatedAt']) &&
+             isValidString(data.title, 1, 100);
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['role', 'content', 'createdAt']) &&
+             data.role in ['user', 'assistant'] &&
+             isValidString(data.content, 1, 10000);
+    }
+
+    function isValidFile(data) {
+      return data.keys().hasAll(['uid', 'name', 'content', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             isValidString(data.name, 1, 255);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+
+      match /chats/{chatId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidConversation(request.resource.data);
+        allow update: if isOwner(userId) && isValidConversation(request.resource.data);
+        allow delete: if isOwner(userId);
+
+        match /messages/{messageId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) && isValidMessage(request.resource.data);
+        }
+      }
+
+      match /teacher_history/{msgId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidMessage(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /documents/{docId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidFile(request.resource.data);
+        allow update: if isOwner(userId) && isValidFile(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /knowledge_base/{docId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidFile(request.resource.data);
+      allow update: if isAdmin() && isValidFile(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

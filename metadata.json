@@ -1,0 +1,6 @@
+{
+  "name": "Chimie Expert",
+  "description": "Assistant IA spécialisé en chimie avec modélisation moléculaire 3D en temps réel.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
