@@ -69,3 +69,92 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
+
+/* Gemini Live Motion Wave & Liquid Aura Animations */
+
+@keyframes gemini-orbit-1 {
+  0% {
+    transform: rotate(0deg) translate(8px, -15px) scale(1);
+  }
+  33% {
+    transform: rotate(120deg) translate(-10px, 12px) scale(1.15);
+  }
+  66% {
+    transform: rotate(240deg) translate(15px, 8px) scale(0.9);
+  }
+  100% {
+    transform: rotate(360deg) translate(8px, -15px) scale(1);
+  }
+}
+
+@keyframes gemini-orbit-2 {
+  0% {
+    transform: rotate(180deg) translate(-15px, 10px) scale(1);
+  }
+  33% {
+    transform: rotate(300deg) translate(12px, -8px) scale(0.85);
+  }
+  66% {
+    transform: rotate(60deg) translate(-8px, -12px) scale(1.2);
+  }
+  100% {
+    transform: rotate(540deg) translate(-15px, 10px) scale(1);
+  }
+}
+
+@keyframes gemini-orbit-3 {
+  0% {
+    transform: rotate(90deg) translate(10px, 12px) scale(0.9);
+  }
+  50% {
+    transform: rotate(270deg) translate(-15px, -15px) scale(1.2);
+  }
+  100% {
+    transform: rotate(450deg) translate(10px, 12px) scale(0.9);
+  }
+}
+
+@keyframes gemini-fluid-pulse {
+  0%, 100% {
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+  34% {
+    border-radius: 70% 30% 50% 50% / 30% 60% 40% 70%;
+  }
+  67% {
+    border-radius: 50% 60% 30% 70% / 60% 30% 70% 40%;
+  }
+}
+
+@keyframes gemini-glow-breathe {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+}
+
+/* Applications classes */
+.animate-gemini-orbit-1 {
+  animation: gemini-orbit-1 12s infinite linear;
+}
+
+.animate-gemini-orbit-2 {
+  animation: gemini-orbit-2 15s infinite linear;
+}
+
+.animate-gemini-orbit-3 {
+  animation: gemini-orbit-3 18s infinite linear;
+}
+
+.animate-gemini-fluid {
+  animation: gemini-fluid-pulse 8s infinite ease-in-out;
+}
+
+.animate-gemini-glow {
+  animation: gemini-glow-breathe 4s infinite ease-in-out;
+}
+

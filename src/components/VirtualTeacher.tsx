@@ -677,19 +677,50 @@ ${d.content}`;
 
   // Live Animated Aura Visualizations corresponding to Gemini Live states
   const renderLiveAura = () => {
+    // Shared Liquid Color Orb Atmosphere that handles organic blending
+    const renderGeminiAtmosphere = (speedClass: string, isBig: boolean) => {
+      return (
+        <div className={cn(
+          "absolute inset-0 rounded-[3.5rem] overflow-hidden opacity-75 transition-transform duration-700 pointer-events-none",
+          isBig ? "scale-115" : "scale-100"
+        )}>
+          {/* Cyan Glow Blob */}
+          <div className={cn(
+            "absolute w-28 h-28 md:w-36 md:h-36 rounded-full bg-gradient-to-tr from-cyan-400 to-cyan-500 opacity-60 blur-2xl top-2 left-2",
+            speedClass === 'fast' ? 'animate-gemini-orbit-1' : 'animate-gemini-orbit-1'
+          )} />
+          {/* Magenta / Pink Glow Blob */}
+          <div className={cn(
+            "absolute w-28 h-28 md:w-36 md:h-36 rounded-full bg-gradient-to-tr from-pink-500 to-rose-400 opacity-65 blur-2xl bottom-2 right-2",
+            speedClass === 'fast' ? 'animate-gemini-orbit-2' : 'animate-gemini-orbit-2'
+          )} />
+          {/* Indigo Glow Blob */}
+          <div className={cn(
+            "absolute w-32 h-32 md:w-40 md:h-40 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 opacity-55 blur-2xl top-2 right-6",
+            speedClass === 'fast' ? 'animate-gemini-orbit-3' : 'animate-gemini-orbit-3'
+          )} />
+          {/* Orange / Gold Glow Blob */}
+          <div className={cn(
+            "absolute w-28 h-28 md:w-36 md:h-36 rounded-full bg-gradient-to-tr from-amber-400 to-orange-500 opacity-50 blur-2xl bottom-6 left-2",
+            speedClass === 'fast' ? 'animate-gemini-orbit-2' : 'animate-gemini-orbit-2'
+          )} />
+          {/* Overlay to blend everything perfectly */}
+          <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-3xl" />
+        </div>
+      );
+    };
+
     if (isLoading) {
       // Rotating/breathing thinking spinner aura
       return (
         <div id="teacher-live-aura-loading" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+          {/* Shared atmospheric background rotating fast */}
+          {renderGeminiAtmosphere('fast', true)}
+          
           <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-            className="absolute inset-0 rounded-full bg-gradient-to-tr from-cyan-500 via-indigo-600 to-rose-500 opacity-40 blur-3xl"
-          />
-          <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-cyan-500/30 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl relative z-10 p-4 text-center shadow-[0_0_25px_rgba(6,182,212,0.15)]"
+            animate={{ scale: [1, 1.06, 1] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            className="w-40 h-40 md:w-48 md:h-48 rounded-[3rem] border border-cyan-400/40 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl relative z-10 p-4 text-center shadow-[0_0_35px_rgba(34,211,238,0.25)]"
           >
             <Sparkles className="w-8 h-8 text-cyan-400 animate-pulse mb-2" />
             <span className="text-[10px] text-cyan-300 font-bold uppercase tracking-widest">{loadingStatus}</span>
@@ -702,78 +733,236 @@ ${d.content}`;
       // Bouncing active mic visualizer waveform
       return (
         <div id="teacher-live-aura-listening" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
-          <motion.div
-            animate={{ scale: [1, 1.2, 1] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-            className="absolute inset-0 rounded-full bg-red-500/10 blur-3xl"
-          />
-          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-red-500/40 flex items-center justify-center bg-slate-950/90 backdrop-blur-xl relative z-10 gap-2.5 px-8 shadow-[0_0_25px_rgba(239,68,68,0.15)]">
-            {[...Array(7)].map((_, i) => (
-              <motion.div
-                key={i}
-                animate={{ height: [12, 64, 12] }}
-                transition={{
-                  duration: 0.5,
-                  repeat: Infinity,
-                  delay: i * 0.08,
-                  ease: "easeInOut"
-                }}
-                className="w-2.5 bg-gradient-to-t from-red-500 via-rose-400 to-orange-400 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-              />
-            ))}
+          {/* Pulsing atmospheric background */}
+          {renderGeminiAtmosphere('normal', true)}
+          
+          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3rem] border border-red-500/20 flex items-center justify-center bg-slate-950/85 backdrop-blur-xl relative z-10 shadow-[0_0_35px_rgba(239,68,68,0.15)] overflow-hidden">
+            <div className="absolute inset-x-2 flex items-center justify-center h-full w-full">
+              <svg viewBox="0 0 200 100" className="w-full h-full p-1 overflow-visible">
+                <defs>
+                  <linearGradient id="cyanTeal" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#0891b2" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="indigoPink" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#ec4899" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#4338ca" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="roseOrange" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#f97316" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#be123c" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="violetCyan" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#a855f7" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.95" />
+                    <stop offset="100%" stopColor="#1d4ed8" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Dynamic sine waves that shimmer back and forth */}
+                <motion.path
+                  d="M 10 50 Q 55 20, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#cyanTeal)"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 20, 100 50 T 190 50",
+                      "M 10 50 Q 55 80, 100 50 T 190 50",
+                      "M 10 50 Q 55 20, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                />
+                
+                <motion.path
+                  d="M 10 50 Q 55 75, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#indigoPink)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 75, 100 50 T 190 50",
+                      "M 10 50 Q 55 25, 100 50 T 190 50",
+                      "M 10 50 Q 55 75, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+                />
+
+                <motion.path
+                  d="M 10 50 Q 55 35, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#roseOrange)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 35, 100 50 T 190 50",
+                      "M 10 50 Q 55 65, 100 50 T 190 50",
+                      "M 10 50 Q 55 35, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 2.0, repeat: Infinity, ease: "easeInOut" }}
+                />
+
+                <motion.path
+                  d="M 10 50 Q 55 60, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#violetCyan)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 60, 100 50 T 190 50",
+                      "M 10 50 Q 55 40, 100 50 T 190 50",
+                      "M 10 50 Q 55 60, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </svg>
+            </div>
           </div>
         </div>
       );
     }
 
     if (isSpeaking) {
-      // Multi-colored waving lines that move with French speech flow
+      // Dynamic expressive speaking waves
       return (
         <div id="teacher-live-aura-speaking" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
-          <motion.div
-            animate={{ scale: [1, 1.15, 1], rotate: -360 }}
-            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            className="absolute inset-0 rounded-full bg-gradient-to-tl from-indigo-500 via-cyan-500 to-rose-500 opacity-30 blur-3xl animate-pulse"
-          />
-          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-cyan-500/30 flex items-center justify-center bg-slate-950/90 backdrop-blur-xl relative z-10 gap-2.5 px-8 shadow-[0_0_30px_rgba(99,102,241,0.25)]">
-            {[...Array(7)].map((_, i) => (
-              <motion.div
-                key={i}
-                animate={{ height: [16, Math.random() * 80 + 20, 16] }}
-                transition={{
-                  duration: Math.random() * 0.4 + 0.3,
-                  repeat: Infinity,
-                  repeatType: "reverse",
-                  ease: "easeInOut"
-                }}
-                className="w-2.5 bg-gradient-to-t from-indigo-500 via-cyan-400 to-teal-400 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.6)]"
-              />
-            ))}
+          {/* Active colorful flowing atmospheric backgrounds */}
+          {renderGeminiAtmosphere('normal', true)}
+          
+          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3rem] border border-cyan-500/20 flex items-center justify-center bg-slate-950/85 backdrop-blur-xl relative z-10 shadow-[0_0_40px_rgba(99,102,241,0.25)] overflow-hidden">
+            <div className="absolute inset-x-2 flex items-center justify-center h-full w-full">
+              <svg viewBox="0 0 200 100" className="w-full h-full p-1 overflow-visible">
+                <defs>
+                  <linearGradient id="speakCyan" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.95" />
+                    <stop offset="100%" stopColor="#0891b2" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="speakPink" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#ec4899" stopOpacity="0.95" />
+                    <stop offset="100%" stopColor="#c084fc" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="speakYellow" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#eab308" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#ff007f" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="speakIndigo" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#4f46e5" stopOpacity="0.95" />
+                    <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Real-time looking active voice waves */}
+                <motion.path
+                  d="M 10 50 Q 55 10, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#speakCyan)"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 5, 100 50 T 190 50",
+                      "M 10 50 Q 55 95, 100 50 T 190 50",
+                      "M 10 50 Q 55 10, 100 50 T 190 50",
+                      "M 10 50 Q 55 35, 100 50 T 190 50",
+                      "M 10 50 Q 55 5, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+                />
+                
+                <motion.path
+                  d="M 10 50 Q 55 90, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#speakPink)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 90, 100 50 T 190 50",
+                      "M 10 50 Q 55 15, 100 50 T 190 50",
+                      "M 10 50 Q 55 75, 100 50 T 190 50",
+                      "M 10 50 Q 55 55, 100 50 T 190 50",
+                      "M 10 50 Q 55 90, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                />
+
+                <motion.path
+                  d="M 10 50 Q 55 30, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#speakYellow)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 25, 100 50 T 190 50",
+                      "M 10 50 Q 55 80, 100 50 T 190 50",
+                      "M 10 50 Q 55 10, 100 50 T 190 50",
+                      "M 10 50 Q 55 60, 100 50 T 190 50",
+                      "M 10 50 Q 55 25, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+                />
+
+                <motion.path
+                  d="M 10 50 Q 55 70, 100 50 T 190 50"
+                  fill="none"
+                  stroke="url(#speakIndigo)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  animate={{
+                    d: [
+                      "M 10 50 Q 55 60, 100 50 T 190 50",
+                      "M 10 50 Q 55 40, 100 50 T 190 50",
+                      "M 10 50 Q 55 85, 100 50 T 190 50",
+                      "M 10 50 Q 55 15, 100 50 T 190 50",
+                      "M 10 50 Q 55 60, 100 50 T 190 50"
+                    ]
+                  }}
+                  transition={{ duration: 0.85, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </svg>
+            </div>
           </div>
         </div>
       );
     }
 
-    // Default Idle state - Breathing, elegant orb
+    // Default Idle state - Breathing, elegant rotating dynamic gradient orb
     return (
       <div 
         id="teacher-live-aura-idle" 
         className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center group cursor-pointer" 
         onClick={toggleListening}
       >
-        <motion.div
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute inset-0 rounded-full bg-gradient-to-tr from-indigo-500/10 via-cyan-500/5 to-rose-500/10 blur-2xl group-hover:scale-110 transition-transform duration-700"
-        />
-        <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-white/10 flex items-center justify-center bg-white/[0.02] backdrop-blur-xl relative z-10 transition-all duration-500 group-hover:border-cyan-500/40 shadow-inner group-hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]">
-          <UserCircle className="w-16 h-16 text-slate-500 group-hover:text-cyan-400 transition-colors duration-500 animate-none" />
+        {/* Soft breathing background matching the atmospheric orb */}
+        {renderGeminiAtmosphere('slow', false)}
+        
+        <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3rem] border border-white/10 flex items-center justify-center bg-slate-950/80 backdrop-blur-xl relative z-10 transition-all duration-500 group-hover:border-cyan-400/40 shadow-inner group-hover:shadow-[0_0_35px_rgba(6,182,212,0.2)]">
+          <UserCircle className="w-16 h-16 text-slate-400 group-hover:text-cyan-400 transition-colors duration-500 animate-none" />
           
-          {/* Subtle slow rotating dashed border around it */}
+          {/* Rotating dashed border for high-tech premium feel */}
           <motion.div
             animate={{ rotate: 360 }}
-            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-            className="absolute inset-2 border border-dashed border-white/5 rounded-[3rem]"
+            transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-2 border border-dashed border-white/10 rounded-[2.5rem] pointer-events-none group-hover:border-cyan-400/20"
           />
         </div>
       </div>
