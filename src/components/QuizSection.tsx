@@ -71,7 +71,7 @@ export default function QuizSection({ user, chatHistory, isSidebarOpen, onToggle
       // 2. Call Gemini to generate quiz
       const ai = getActiveGeminiClient();
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: `Génère un quiz de 3 à 5 questions basé sur cette conversation de chimie. 
         Chaque question doit avoir 4 options, un index de réponse correcte (0-3) et une explication.
         

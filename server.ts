@@ -24,6 +24,68 @@ async function startServer() {
     }
   });
 
+  const getFallbackModels = (requestedModel: string): string[] => {
+    const defaults = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.1-pro-preview"
+    ];
+    const list = [requestedModel];
+    for (const m of defaults) {
+      if (!list.includes(m)) {
+        list.push(m);
+      }
+    }
+    return list;
+  };
+
+  async function generateContentWithFallback(requestedModel: string, contents: any, config: any) {
+    const modelsToTry = getFallbackModels(requestedModel || "gemini-3.5-flash");
+    let lastError: any = null;
+    for (const model of modelsToTry) {
+      try {
+        console.log(`[Gemini Proxy] Attempting generateContent with model: ${model}`);
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config
+        });
+        console.log(`[Gemini Proxy] Successfully generated content using model: ${model}`);
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Gemini Proxy] Error generating content with model ${model}:`, err?.message || err);
+      }
+    }
+    throw lastError || new Error("All generative models failed to respond.");
+  }
+
+  async function* generateContentStreamWithFallback(requestedModel: string, contents: any, config: any) {
+    const modelsToTry = getFallbackModels(requestedModel || "gemini-3.5-flash");
+    let lastError: any = null;
+    for (const model of modelsToTry) {
+      try {
+        console.log(`[Gemini Proxy] Attempting generateContentStream with model: ${model}`);
+        const responseStream = await ai.models.generateContentStream({
+          model,
+          contents,
+          config
+        });
+        for await (const chunk of responseStream) {
+          yield chunk;
+        }
+        console.log(`[Gemini Proxy] Successfully completed stream using model: ${model}`);
+        return;
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Gemini Proxy] Error streaming content with model ${model}:`, err?.message || err);
+      }
+    }
+    throw lastError || new Error("All streaming models failed to respond.");
+  }
+
   // API Route - Healthcheck
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", hasKey: !!process.env.GEMINI_API_KEY });
@@ -38,11 +100,7 @@ async function startServer() {
         });
       }
       const { model, contents, config } = req.body;
-      const response = await ai.models.generateContent({
-        model: model || "gemini-3.5-flash",
-        contents,
-        config
-      });
+      const response = await generateContentWithFallback(model, contents, config);
       res.json(response);
     } catch (error: any) {
       console.error("Generate error:", error);
@@ -58,11 +116,7 @@ async function startServer() {
         return res.status(400).end("The Google Gemini API key is not configured.");
       }
       const { model, contents, config } = req.body;
-      const responseStream = await ai.models.generateContentStream({
-        model: model || "gemini-3.5-flash",
-        contents,
-        config
-      });
+      const responseStream = generateContentStreamWithFallback(model, contents, config);
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');

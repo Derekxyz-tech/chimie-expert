@@ -286,7 +286,7 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     try {
       const ai = getActiveGeminiClient();
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: [{ role: "user", parts: [{ text: `Analyse ces documents de cours de chimie et fournis un résumé structuré, les concepts clés, et des questions d'entraînement potentielles. 
         
         RÈGLE: Utilise EXCLUSIVEMENT les informations contenues dans ces documents. Ne rajoute pas de connaissances extérieures.

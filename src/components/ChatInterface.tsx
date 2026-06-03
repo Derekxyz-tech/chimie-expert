@@ -203,7 +203,7 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
     try {
       const ai = getGeminiClient();
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3.5-flash",
         contents: [{ role: "user", parts: [{ text: `Résume cette question de chimie en 3-5 mots maximum pour un titre de chat. INTERDICTION d'utiliser du LaTeX (pas de $), du Markdown ou des symboles spéciaux. Juste du texte brut. Question: "${text}"` }] }]
       });
       return response.text?.trim().replace(/^"|"$/g, '') || "Nouveau chat";
@@ -352,7 +352,7 @@ ${d.content}`;
 
       const ai = getActiveGeminiClient();
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3.5-flash",
         contents: [
           ...history,
           { role: "user", parts: [{ text: currentInput }] }

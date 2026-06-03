@@ -25,10 +25,12 @@ class MockGeminiClient {
     },
 
     generateContentStream: async function* (params: any) {
+      const { signal, ...restParams } = params;
       const response = await fetch("/api/gemini/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
+        body: JSON.stringify(restParams),
+        signal,
       });
       if (!response.ok) {
         const errText = await response.text().catch(() => "Unknown stream error");

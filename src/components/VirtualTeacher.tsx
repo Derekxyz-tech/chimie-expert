@@ -83,6 +83,22 @@ export default function VirtualTeacher({ user, isSidebarOpen, onToggleSidebar }:
   const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const queryHandlerRef = useRef<(text: string) => Promise<void>>(null as any);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const stopAll = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (synthRef.current) {
+      synthRef.current.cancel();
+    }
+    setIsSpeaking(false);
+    setIsLoading(false);
+    setIsListening(false);
+    setIsStarting(false);
+  };
+
   // Typing effect logic has been removed in favor of real-time streaming
   // We keep setDisplayedResponse for immediate updates during streaming
 
@@ -433,8 +449,11 @@ ${d.content}`;
         }));
 
       const ai = getActiveGeminiClient();
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       const responseStream = await ai.models.generateContentStream({
-        model: "gemini-3.1-flash-lite-preview", 
+        model: "gemini-3.5-flash", 
         contents: [
           ...historyContents,
           { role: "user", parts: [{ text: queryText }] }
@@ -447,13 +466,14 @@ ${d.content}`;
           1. Répons en 1 ou 2 phrases concises.
           2. Si l'information est présente dans le CONTEXTE, donne la réponse directement sans citer les fichiers.
           3. SÉCURITÉ & HORS-SUJET:
-             - Si la question porte sur la CHIMIE ou la PHYSIQUE mais que l'info est ABSENTE du contexte : Réponds que l'info n'est pas dans les archives, mais PROPOSE explicitement de donner l'information via tes connaissances générales en précisant qu'elle ne sera pas vérifiée par le collège.
-             - Si la question est HORS-SUJET (culture générale, quotidien, etc.) : Réponds que c'est en dehors de ton champ de compétence et que tu es limité exclusivement aux sujets de CHIMIE.
+          - Si la question porte sur la CHIMIE ou la PHYSIQUE mais que l'info est ABSENTE du contexte : Réponds que l'info n'est pas dans les archives, mais PROPOSE explicitement de donner l'information via tes connaissances générales en précisant qu'elle ne sera pas vérifiée par le collège.
+          - Si la question est HORS-SUJET (culture générale, quotidien, etc.) : Réponds que c'est en dehors de ton champ de compétence et que tu es limité exclusivement aux sujets de CHIMIE.
           4. [FALLBACK] : Si l'utilisateur accepte ta proposition ou si tu donnes une info hors-contexte, commence OBLIGATOIREMENT par "[FALLBACK]".
           5. IMAGES & VISUELS : Si on te demande de générer ou d'afficher une image ou séquence d'images présente dans le CONTEXTE, insère le tag [[IMAGE:nom_du_fichier]] correspondant pour l'image.
           
           ${context}`
-        }
+        },
+        signal: abortController.signal
       });
 
       let fullResponse = "";
@@ -470,6 +490,11 @@ ${d.content}`;
             .trim();
           setDisplayedResponse(visibleText);
         }
+      }
+
+      // Reset abort controller ref once complete
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
       }
 
       if (fullResponse.includes('[FALLBACK]')) {
@@ -520,6 +545,10 @@ ${d.content}`;
       
       speak(cleanVoiceText);
     } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        console.log("Teacher generation aborted by user.");
+        return;
+      }
       console.error("VirtualTeacher Error:", error);
       const errorMessage = error?.message || "";
       if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
@@ -646,38 +675,149 @@ ${d.content}`;
     });
   };
 
+  // Live Animated Aura Visualizations corresponding to Gemini Live states
+  const renderLiveAura = () => {
+    if (isLoading) {
+      // Rotating/breathing thinking spinner aura
+      return (
+        <div id="teacher-live-aura-loading" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 rounded-full bg-gradient-to-tr from-cyan-500 via-indigo-600 to-rose-500 opacity-40 blur-3xl"
+          />
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-cyan-500/30 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl relative z-10 p-4 text-center shadow-[0_0_25px_rgba(6,182,212,0.15)]"
+          >
+            <Sparkles className="w-8 h-8 text-cyan-400 animate-pulse mb-2" />
+            <span className="text-[10px] text-cyan-300 font-bold uppercase tracking-widest">{loadingStatus}</span>
+          </motion.div>
+        </div>
+      );
+    }
+
+    if (isListening) {
+      // Bouncing active mic visualizer waveform
+      return (
+        <div id="teacher-live-aura-listening" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+            className="absolute inset-0 rounded-full bg-red-500/10 blur-3xl"
+          />
+          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-red-500/40 flex items-center justify-center bg-slate-950/90 backdrop-blur-xl relative z-10 gap-2.5 px-8 shadow-[0_0_25px_rgba(239,68,68,0.15)]">
+            {[...Array(7)].map((_, i) => (
+              <motion.div
+                key={i}
+                animate={{ height: [12, 64, 12] }}
+                transition={{
+                  duration: 0.5,
+                  repeat: Infinity,
+                  delay: i * 0.08,
+                  ease: "easeInOut"
+                }}
+                className="w-2.5 bg-gradient-to-t from-red-500 via-rose-400 to-orange-400 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (isSpeaking) {
+      // Multi-colored waving lines that move with French speech flow
+      return (
+        <div id="teacher-live-aura-speaking" className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+          <motion.div
+            animate={{ scale: [1, 1.15, 1], rotate: -360 }}
+            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 rounded-full bg-gradient-to-tl from-indigo-500 via-cyan-500 to-rose-500 opacity-30 blur-3xl animate-pulse"
+          />
+          <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-cyan-500/30 flex items-center justify-center bg-slate-950/90 backdrop-blur-xl relative z-10 gap-2.5 px-8 shadow-[0_0_30px_rgba(99,102,241,0.25)]">
+            {[...Array(7)].map((_, i) => (
+              <motion.div
+                key={i}
+                animate={{ height: [16, Math.random() * 80 + 20, 16] }}
+                transition={{
+                  duration: Math.random() * 0.4 + 0.3,
+                  repeat: Infinity,
+                  repeatType: "reverse",
+                  ease: "easeInOut"
+                }}
+                className="w-2.5 bg-gradient-to-t from-indigo-500 via-cyan-400 to-teal-400 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.6)]"
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Default Idle state - Breathing, elegant orb
+    return (
+      <div 
+        id="teacher-live-aura-idle" 
+        className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center group cursor-pointer" 
+        onClick={toggleListening}
+      >
+        <motion.div
+          animate={{ scale: [1, 1.05, 1] }}
+          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute inset-0 rounded-full bg-gradient-to-tr from-indigo-500/10 via-cyan-500/5 to-rose-500/10 blur-2xl group-hover:scale-110 transition-transform duration-700"
+        />
+        <div className="w-40 h-40 md:w-48 md:h-48 rounded-[3.5rem] border border-white/10 flex items-center justify-center bg-white/[0.02] backdrop-blur-xl relative z-10 transition-all duration-500 group-hover:border-cyan-500/40 shadow-inner group-hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]">
+          <UserCircle className="w-16 h-16 text-slate-500 group-hover:text-cyan-400 transition-colors duration-500 animate-none" />
+          
+          {/* Subtle slow rotating dashed border around it */}
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-2 border border-dashed border-white/5 rounded-[3rem]"
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="flex flex-col h-full items-center justify-center p-4 md:p-6 relative overflow-hidden bg-white">
-      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50 to-transparent" />
+    <div 
+      id="teacher-live-container" 
+      className="flex flex-col h-full items-center justify-center p-4 md:p-6 relative overflow-hidden bg-[#0a0a0d] text-slate-100"
+    >
+      {/* Immersive radial gradient at the center */}
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.06)_0%,transparent_65%)]" />
       
       {/* Sidebar Toggle Button */}
       {!isSidebarOpen && (
         <div className="absolute top-6 left-6 z-20">
           <Button 
+            id="teacher-sidebar-toggle-btn"
             variant="ghost" 
             size="icon" 
             onClick={onToggleSidebar}
-            className="text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+            className="text-slate-400 hover:text-white hover:bg-white/10 rounded-xl"
           >
             <PanelLeftOpen className="w-5 h-5" />
           </Button>
         </div>
       )}
-
+  
       {/* History Toggle Button */}
       <div className="absolute top-6 right-6 z-20">
         <Button 
+          id="teacher-history-toggle-btn"
           variant="outline" 
           size="sm" 
           onClick={() => setShowHistory(!showHistory)}
-          className="rounded-xl gap-2 bg-white/80 backdrop-blur-md border-slate-200 shadow-sm text-slate-700 hover:bg-slate-50"
+          className="rounded-xl gap-2 bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white backdrop-blur-md shadow-sm"
         >
           <History className="w-4 h-4" />
           {showHistory ? "Fermer l'historique" : "Historique"}
         </Button>
       </div>
-
-      <ScrollArea className="w-full h-full min-h-0">
+  
+      <ScrollArea id="teacher-main-scroll-area" className="w-full h-full min-h-0">
         <div className="max-w-2xl mx-auto min-h-full flex flex-col items-center justify-center gap-8 md:gap-12 py-12">
           
           <AnimatePresence mode="wait">
@@ -691,10 +831,16 @@ ${d.content}`;
               >
                 <div className="flex items-center justify-between px-2">
                   <div className="space-y-1">
-                    <h3 className="text-xl font-display font-black text-slate-900 tracking-tight uppercase">HISTORIQUE</h3>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Vos échanges vocaux récents</p>
+                    <h3 className="text-xl font-display font-black text-white tracking-tight uppercase">HISTORIQUE</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Vos échanges vocaux récents</p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={clearHistory} className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 gap-2 rounded-xl h-9 px-4">
+                  <Button 
+                    id="teacher-clear-history-btn"
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHistory} 
+                    className="text-rose-400 hover:text-rose-500 hover:bg-rose-950/20 gap-2 rounded-xl h-9 px-4"
+                  >
                     <Trash2 className="w-4 h-4" />
                     <span className="text-[10px] uppercase font-black tracking-widest">Tout effacer</span>
                   </Button>
@@ -711,17 +857,17 @@ ${d.content}`;
                         "px-5 py-3 rounded-[1.5rem] text-sm leading-relaxed shadow-sm transition-all",
                         msg.role === 'user' 
                           ? 'bg-indigo-600 text-white rounded-tr-none' 
-                          : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none shadow-sm'
+                          : 'bg-white/5 border border-white/10 text-slate-200 rounded-tl-none backdrop-blur-md'
                       )}>
                         {msg.content}
                       </div>
-                      <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black px-2">
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-black px-2">
                         {msg.createdAt?.toDate?.().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </motion.div>
                   ))}
                   {history.length === 0 && (
-                    <div className="text-center py-24 bg-white rounded-[2.5rem] border border-dashed border-slate-200 shadow-sm">
+                    <div className="text-center py-24 bg-white/5 rounded-[2.5rem] border border-dashed border-white/10">
                       <p className="text-slate-400 italic text-sm font-medium">Aucun historique pour le moment.</p>
                     </div>
                   )}
@@ -733,93 +879,53 @@ ${d.content}`;
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="flex flex-col items-center gap-12 w-full"
+                className="flex flex-col items-center gap-10 w-full"
               >
                 <div className="text-center space-y-3">
-                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 mb-2">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-950/30 border border-cyan-800/30 text-cyan-400 mb-2">
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Assistant Vocal AI</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Prof Live AI</span>
                   </div>
-                  <h2 className="text-3xl md:text-5xl font-display font-black text-slate-900 tracking-tight uppercase">PROF VIRTUEL</h2>
-                  <p className="text-base text-slate-500 font-medium max-w-md mx-auto">
-                    Appuyez sur le micro et posez vos questions à haute voix pour une réponse instantanée.
+                  <h2 className="text-3xl md:text-5xl font-display font-black text-white tracking-tight uppercase">PROF VIRTUEL</h2>
+                  <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">
+                    Parlez naturellement ou tapez vos questions pour explorer les archives de cours de chimie.
                   </p>
                   
                   {/* Context Status Badge */}
-                  <div className="flex items-center justify-center gap-2 mt-6">
+                  <div className="flex items-center justify-center gap-2 mt-4" id="teacher-archives-status-badge">
                     <div className={cn(
-                      "flex items-center gap-2 px-4 py-2 border rounded-2xl transition-all shadow-sm",
+                      "flex items-center gap-2 px-3 py-1.5 border rounded-2xl transition-all shadow-md bg-white/[0.02]",
                       (globalDocs.length + personalDocs.length > 0) 
-                        ? "bg-white border-emerald-100 text-emerald-600 shadow-sm" 
-                        : "bg-white border-amber-100 text-amber-600 shadow-sm"
+                        ? "border-emerald-500/20 text-emerald-400" 
+                        : "border-amber-500/20 text-amber-400"
                     )}>
                       <div className={cn(
-                        "w-2 h-2 rounded-full",
-                        (globalDocs.length + personalDocs.length > 0) ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                        "w-1.5 h-1.5 rounded-full",
+                        (globalDocs.length + personalDocs.length > 0) ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
                       )} />
-                      <span className="text-[11px] uppercase tracking-wider font-black">
-                        {globalDocs.length + personalDocs.length} Archives Prêtes
+                      <span className="text-[9px] uppercase tracking-wider font-black">
+                        {globalDocs.length + personalDocs.length} Archives Chargées
                       </span>
                     </div>
                   </div>
                 </div>
-
-                <div className="relative group">
-                  <motion.div 
-                    animate={isSpeaking || isListening ? { scale: [1, 1.05, 1] } : {}}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className={`w-40 h-40 md:w-56 md:h-56 rounded-[3.5rem] flex items-center justify-center transition-all duration-700 relative overflow-hidden ${
-                      isSpeaking ? 'bg-indigo-600 shadow-2xl shadow-indigo-500/20' : 
-                      isListening ? 'bg-red-500 shadow-2xl shadow-red-500/20' : 
-                      'bg-white shadow-2xl border border-slate-100'
-                    }`}
-                  >
-                    <div className={`w-36 h-36 md:h-48 md:w-48 rounded-[3rem] border-2 flex items-center justify-center relative transition-all duration-500 ${
-                      isListening ? 'border-white/20' : 'border-slate-50'
-                    }`}>
-                      <UserCircle className={`w-20 h-20 md:w-28 md:h-28 transition-colors duration-500 ${isSpeaking || isListening ? 'text-white' : 'text-slate-100'}`} />
-                      
-                      {isSpeaking && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          {[...Array(3)].map((_, i) => (
-                            <motion.div
-                              key={i}
-                              initial={{ scale: 1, opacity: 0.5 }}
-                              animate={{ scale: 2, opacity: 0 }}
-                              transition={{ duration: 2, repeat: Infinity, delay: i * 0.6 }}
-                              className="absolute w-full h-full rounded-[3.5rem] border border-white"
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                  
-                  {isListening && (
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex items-end gap-1.5 h-10">
-                      {[...Array(6)].map((_, i) => (
-                        <motion.div
-                          key={i}
-                          animate={{ height: [8, 32, 8] }}
-                          transition={{ 
-                            duration: 0.4, 
-                            repeat: Infinity, 
-                            delay: i * 0.1,
-                            ease: "easeInOut"
-                          }}
-                          className="w-1.5 bg-red-500 rounded-full"
-                        />
-                      ))}
-                    </div>
-                  )}
+  
+                {/* Visualizer and dynamic ripples in central aura */}
+                <div className="relative" id="teacher-live-aura-card">
+                  {renderLiveAura()}
                 </div>
-
-                <div className="w-full min-h-[160px] bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-xl flex flex-col items-center justify-center text-center relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-600/10 to-transparent" />
+  
+                {/* Main Streaming Output Content Text Box */}
+                <div 
+                  id="teacher-text-display-card"
+                  className="w-full min-h-[160px] bg-white/[0.02] backdrop-blur-xl rounded-[2rem] p-8 border border-white/10 shadow-2xl flex flex-col items-center justify-center text-center relative overflow-hidden"
+                >
+                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent" />
                   
                   <AnimatePresence mode="wait">
                     {showTextInput ? (
                       <motion.form 
+                        id="teacher-text-input-form"
                         key="text-input"
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -832,36 +938,42 @@ ${d.content}`;
                             setShowTextInput(false);
                           }
                         }}
-                        className="w-full flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-200"
+                        className="w-full flex items-center gap-3 bg-slate-950/80 p-2 rounded-2xl border border-white/10"
                       >
                         <input 
+                          id="teacher-text-input-field"
                           autoFocus
                           value={textInput}
                           onChange={(e) => setTextInput(e.target.value)}
-                          placeholder="Appuyer sur Entrée pour envoyer..."
-                          className="flex-1 bg-transparent focus:ring-0 outline-none text-slate-900 text-sm px-4 py-2 font-medium"
+                          placeholder="Démarrez un apprentissage en tapant ici..."
+                          className="flex-1 bg-transparent focus:ring-0 outline-none text-white text-sm px-4 py-2 font-medium"
                         />
-                        <Button type="submit" size="sm" className="bg-slate-900 hover:bg-black text-white rounded-xl px-4 py-1.5 h-9">
+                        <Button 
+                          id="teacher-send-input-btn"
+                          type="submit" 
+                          size="sm" 
+                          className="bg-cyan-500 hover:bg-cyan-600 text-slate-950 rounded-xl px-4 py-1.5 h-9"
+                        >
                           <Send className="w-4 h-4" />
                         </Button>
                       </motion.form>
                     ) : isLoading ? (
                       <motion.div key="loading" className="flex flex-col items-center gap-4">
                         <div className="relative">
-                          <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
+                          <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
                           <motion.div 
                             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
                             transition={{ duration: 1.5, repeat: Infinity }}
-                            className="absolute inset-0 bg-indigo-500/10 blur-xl rounded-full"
+                            className="absolute inset-0 bg-cyan-500/10 blur-xl rounded-full"
                           />
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs font-black text-indigo-600 uppercase tracking-[0.3em] animate-pulse">
+                          <p className="text-xs font-black text-cyan-400 uppercase tracking-[0.3em] animate-pulse">
                             {loadingStatus}
                           </p>
                           {scannedCount > 0 && (
                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                              Analyse de {scannedCount} document(s)
+                              Exploration des documents ({scannedCount})
                             </p>
                           )}
                         </div>
@@ -873,45 +985,70 @@ ${d.content}`;
                         animate={{ opacity: 1 }}
                         className="flex flex-col items-center gap-2"
                       >
-                        <p className="text-red-500 font-black tracking-[0.2em] uppercase text-xs">
-                          Microphone Actif
+                        <p className="text-red-400 font-black tracking-[0.2em] uppercase text-xs animate-pulse">
+                          Microphone Écoute en Direct
                         </p>
-                        <p className="text-slate-500 text-sm font-medium">Posez votre question maintenant...</p>
+                        <p className="text-slate-400 text-sm font-medium">Prononcez votre question...</p>
                       </motion.div>
                     ) : displayedResponse ? (
                       <motion.div 
                         key="response" 
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="space-y-4"
+                        className="space-y-4 w-full"
                       >
-                        <div className="text-lg md:text-2xl text-slate-900 leading-tight font-bold tracking-tight">
+                        <div className="text-lg md:text-xl text-white leading-relaxed font-medium tracking-wide text-left md:text-center max-h-[250px] overflow-y-auto">
                           {renderTeacherResponse(displayedResponse)}
                         </div>
                       </motion.div>
                     ) : (
-                      <motion.p key="idle" className="text-slate-400 text-lg font-medium">
-                        C'est à vous... 👋
+                      <motion.p key="idle" className="text-slate-500 text-lg font-medium">
+                        Dites quelque chose pour commencer... 👋
                       </motion.p>
                     )}
                   </AnimatePresence>
                 </div>
-
-                <div className="flex items-center gap-6">
+  
+                {/* Secondary Stop/Interrupt Controller Panel */}
+                {(isLoading || isSpeaking) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="flex justify-center"
+                  >
+                    <Button
+                      id="teacher-stop-btn"
+                      variant="outline"
+                      onClick={stopAll}
+                      className="bg-red-500/10 hover:bg-red-600/20 border-red-500/30 text-rose-400 hover:text-white rounded-full px-6 py-2.5 text-xs font-extrabold uppercase tracking-widest flex items-center gap-2.5 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping shrink-0" />
+                      Interrompre l'IA
+                    </Button>
+                  </motion.div>
+                )}
+  
+                {/* Floating Navigation / Control Dock */}
+                <div className="flex items-center gap-6 bg-slate-900/40 p-4 border border-white/5 shadow-2xl rounded-[2.5rem] backdrop-blur-xl">
+                  {/* Speaker reset button */}
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                     <Button 
+                      id="teacher-audio-config-btn"
                       variant="outline" 
                       size="icon" 
                       onClick={() => {
                         recognitionRef.current = initSpeechRecognition();
-                        setTeacherResponse("Microphone réinitialisé. Réessayez.");
+                        setTeacherResponse("Microphone réinitialisé.");
+                        stopAll();
                       }}
-                      className="w-14 h-14 rounded-2xl border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm"
+                      className="w-14 h-14 rounded-full border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white transition-all shadow-md"
                     >
-                      <Volume2 className="w-6 h-6" />
+                      <Volume2 className="w-5 h-5" />
                     </Button>
                   </motion.div>
                   
+                  {/* Primary record mic toggle orb */}
                   <motion.div 
                     whileHover={{ scale: 1.05 }} 
                     whileTap={{ scale: 0.95 }}
@@ -921,35 +1058,40 @@ ${d.content}`;
                       <motion.div 
                         layoutId="mic-bg"
                         initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1.2 }}
-                        className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full"
+                        animate={{ opacity: 1, scale: 1.25 }}
+                        className="absolute inset-0 bg-red-500/25 blur-2xl rounded-full"
                       />
                     )}
                     <Button 
+                      id="teacher-mic-toggle-btn"
                       onClick={toggleListening}
                       disabled={isLoading}
                       className={cn(
-                        "w-20 h-20 md:w-24 md:h-24 rounded-[2rem] shadow-2xl transition-all duration-500 relative z-10",
+                        "w-20 h-20 md:w-22 md:h-22 rounded-full shadow-2xl transition-all duration-500 relative z-10 font-bold",
                         isListening 
-                          ? 'bg-red-500 hover:bg-red-600 rotate-90' 
-                          : 'bg-slate-900 hover:bg-black text-white'
+                          ? 'bg-red-500 hover:bg-red-600 text-white rotate-90 shadow-red-500/20' 
+                          : 'bg-white hover:bg-slate-200 text-slate-950 shadow-[0_4px_20px_rgba(255,255,255,0.05)]'
                       )}
                     >
                       {isListening ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8" />}
                     </Button>
                   </motion.div>
-
+  
+                  {/* Keyboard input open toggle button */}
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                     <Button 
+                      id="teacher-text-toggle-btn"
                       variant="outline" 
                       size="icon" 
                       onClick={() => setShowTextInput(!showTextInput)}
                       className={cn(
-                        "w-14 h-14 rounded-2xl border-slate-200 bg-white text-slate-500 transition-all shadow-sm",
-                        showTextInput ? 'bg-indigo-600 text-white border-indigo-600 scale-110 shadow-indigo-500/20' : 'hover:bg-slate-50 hover:text-slate-900'
+                        "w-14 h-14 rounded-full border-white/10 bg-white/5 text-slate-300 transition-all shadow-md",
+                        showTextInput 
+                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 scale-110 shadow-cyan-500/10' 
+                          : 'hover:bg-white/10 hover:text-white'
                       )}
                     >
-                      <MessageSquare className="w-6 h-6" />
+                      <MessageSquare className="w-5 h-5" />
                     </Button>
                   </motion.div>
                 </div>
@@ -958,23 +1100,24 @@ ${d.content}`;
           </AnimatePresence>
         </div>
       </ScrollArea>
-
+  
       {/* Footer Disclaimer Area - Fixed at the very bottom */}
       <AnimatePresence>
         {activeDisclaimer && (
           <motion.div 
+            id="teacher-bottom-disclaimer-banner"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-lg px-6"
           >
-            <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 p-4 rounded-2xl shadow-2xl flex items-center gap-4">
-               <div className="shrink-0 p-2 bg-amber-500/20 rounded-xl">
-                 <Sparkles className="w-4 h-4 text-amber-400" />
+            <div className="bg-slate-950 border border-white/10 p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center gap-4 backdrop-blur-xl">
+               <div className="shrink-0 p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                 <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
                </div>
                <div className="flex-1">
-                 <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Note Importante</p>
-                 <p className="text-xs text-white/90 leading-tight font-medium">
+                 <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-0.5">Note Importante</p>
+                 <p className="text-xs text-slate-100 leading-normal font-medium">
                    {activeDisclaimer}
                  </p>
                </div>
@@ -982,7 +1125,7 @@ ${d.content}`;
                 variant="ghost" 
                 size="icon" 
                 onClick={() => setActiveDisclaimer(null)}
-                className="text-slate-400 hover:text-white shrink-0 h-8 w-8 hover:bg-white/10"
+                className="text-slate-500 hover:text-white shrink-0 h-8 w-8 hover:bg-white/5 rounded-lg"
                >
                  <X className="w-4 h-4" />
                </Button>
