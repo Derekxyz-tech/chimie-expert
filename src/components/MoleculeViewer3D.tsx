@@ -147,9 +147,9 @@ export default function MoleculeViewer3D({ molecule }: { molecule?: any }) {
   }
 
   return (
-    <div className="w-full h-[400px] rounded-2xl overflow-hidden glass-dark relative group">
+    <div className="w-full h-[400px] rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm relative group">
       <div className="absolute top-4 left-4 z-10">
-        <h3 className="text-sm font-display font-semibold text-white/90 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md border border-white/10">
+        <h3 className="text-sm font-display font-bold text-slate-800 bg-white/80 px-3 py-1 rounded-full backdrop-blur-md border border-slate-200/50 shadow-sm">
           {activeMolecule.name}
         </h3>
       </div>
@@ -167,7 +167,7 @@ export default function MoleculeViewer3D({ molecule }: { molecule?: any }) {
         </Float>
       </Canvas>
       
-      <div className="absolute bottom-4 right-4 text-[10px] text-white/30 uppercase tracking-widest pointer-events-none">
+      <div className="absolute bottom-4 right-4 text-[9px] text-slate-400 font-extrabold uppercase tracking-widest pointer-events-none animate-none">
         Chimie Expert 3D Engine
       </div>
     </div>

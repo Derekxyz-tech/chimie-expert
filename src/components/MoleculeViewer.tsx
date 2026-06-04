@@ -292,19 +292,19 @@ export default function MoleculeViewer({ molecule }: { molecule?: any }) {
   }, [isPlaying]);
 
   return (
-    <div className="w-full flex flex-col rounded-3xl overflow-hidden bg-slate-950/60 border border-white/10 shadow-2xl backdrop-blur-xl">
+    <div className="w-full flex flex-col rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-xl">
       {/* Dynamic Interactive Toolbar / Title */}
-      <div className="px-5 py-4 flex items-center justify-between border-b border-white/5 bg-slate-900/40 relative z-10">
+      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100 bg-slate-50/60 relative z-10">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-400/20 text-indigo-400 animate-pulse">
+          <div className="p-2 bg-indigo-50/60 rounded-xl border border-indigo-100 text-indigo-500">
             <Beaker className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-display font-semibold text-white/90 text-sm">
+            <h3 className="font-display font-bold text-slate-800 text-sm">
               {activeReaction ? activeReaction.name : staticMolecule.name}
             </h3>
-            <p className="font-mono text-[11px] text-slate-400">
-              {activeReaction ? activeReaction.equation : `Structure Formula: ${staticMolecule.formula || 'N/A'}`}
+            <p className="font-mono text-[11px] text-slate-500">
+              {activeReaction ? activeReaction.equation : `Formule de structure : ${staticMolecule.formula || 'N/A'}`}
             </p>
           </div>
         </div>
@@ -314,7 +314,7 @@ export default function MoleculeViewer({ molecule }: { molecule?: any }) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className="p-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-400/20 text-indigo-300 transition-all text-xs flex items-center gap-1.5 px-3 font-medium active:scale-95"
+              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 transition-all text-xs flex items-center gap-1.5 px-3 font-semibold active:scale-95"
             >
               {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               {isPlaying ? 'Pause' : 'Simuler'}
@@ -324,7 +324,7 @@ export default function MoleculeViewer({ molecule }: { molecule?: any }) {
                 setIsPlaying(false);
                 setProgress(0);
               }}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-300 transition-all text-xs flex items-center justify-center font-medium active:scale-95"
+              className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition-all text-xs flex items-center justify-center font-medium active:scale-95"
               title="Réinitialiser"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -404,40 +404,40 @@ export default function MoleculeViewer({ molecule }: { molecule?: any }) {
         {/* Reaction stage phase overlays */}
         {activeReaction && (
           <div className="absolute inset-x-0 bottom-16 flex justify-center pointer-events-none z-10 select-none px-4">
-            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 bg-slate-900/80 px-3 py-1 rounded-full border border-white/5 backdrop-blur-md">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-600 bg-white/90 px-3 py-1 rounded-full border border-slate-150 shadow-sm backdrop-blur-md">
               {progress < 0.48 ? (
-                <span className="text-amber-400 flex items-center gap-1">⚡ Réactifs en excitation ({Math.round(progress * 200)}%)</span>
+                <span className="text-amber-600 flex items-center gap-1">⚡ Réactifs en excitation ({Math.round(progress * 200)}%)</span>
               ) : progress < 0.53 ? (
-                <span className="text-white animate-pulse flex items-center gap-1">☄️ Point d'activation atteint !</span>
+                <span className="text-slate-800 animate-pulse flex items-center gap-1">☄️ Point d'activation atteint !</span>
               ) : (
-                <span className="text-cyan-400 flex items-center gap-1">🧪 Formation des Produits ({Math.round((progress - 0.5) * 200)}%)</span>
+                <span className="text-cyan-600 flex items-center gap-1">🧪 Formation des Produits ({Math.round((progress - 0.5) * 200)}%)</span>
               )}
             </span>
           </div>
         )}
 
         {/* Soft educational helper banner overlay */}
-        <div className="absolute top-4 left-4 inline-flex items-center gap-1.5 text-[10px] text-slate-400 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-white/5 backdrop-blur-md select-none pointer-events-none transition-opacity duration-300 group-hover:opacity-10 opacity-70">
-          <Info className="w-3 h-3 text-indigo-400" />
+        <div className="absolute top-4 left-4 inline-flex items-center gap-1.5 text-[10px] text-slate-500 bg-white/85 px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm backdrop-blur-md select-none pointer-events-none transition-opacity duration-300 group-hover:opacity-10 opacity-70">
+          <Info className="w-3 h-3 text-indigo-500" />
           <span>Faites glisser pour tourner • Molette pour zoomer</span>
         </div>
 
         {/* Professional attribution badge */}
-        <div className="absolute bottom-4 right-4 text-[9px] text-white/30 tracking-widest font-mono select-none pointer-events-none">
+        <div className="absolute bottom-4 right-4 text-[9px] text-slate-450 tracking-widest font-mono select-none pointer-events-none">
           CHIMIE 3D SYSTEM
         </div>
       </div>
 
       {/* Manual timeline scrubber slider bar for reaction control */}
       {activeReaction && (
-        <div className="px-5 py-4 bg-slate-950/80 border-t border-white/5 flex flex-col md:flex-row items-center gap-4 relative z-10">
+        <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row items-center gap-4 relative z-10">
           <div className="flex items-center gap-2 min-w-[130px]">
-            <Beaker className="w-4 h-4 text-slate-400" />
-            <span className="text-xs text-slate-300 font-semibold uppercase tracking-wider font-display">Évolution chimique :</span>
+            <Beaker className="w-4 h-4 text-slate-500" />
+            <span className="text-xs text-slate-705 font-bold uppercase tracking-wider font-display">Évolution chimique :</span>
           </div>
           
           <div className="flex-1 w-full flex items-center gap-3">
-            <span className="text-[10px] font-mono text-amber-500 w-16 text-right font-bold uppercase select-none">H₂ + O₂</span>
+            <span className="text-[10px] font-mono text-amber-600 w-16 text-right font-bold uppercase select-none">H₂ + O₂</span>
             <input
               type="range"
               min="0"
@@ -448,12 +448,12 @@ export default function MoleculeViewer({ molecule }: { molecule?: any }) {
                 setIsPlaying(false);
                 setProgress(parseFloat(e.target.value));
               }}
-              className="flex-1 h-1.5 rounded-lg bg-slate-800 accent-indigo-500 hover:accent-indigo-400 cursor-pointer outline-none transition-all"
+              className="flex-1 h-1.5 rounded-lg bg-slate-200 accent-indigo-500 hover:accent-indigo-400 cursor-pointer outline-none transition-all"
             />
-            <span className="text-[10px] font-mono text-cyan-400 w-16 text-left font-bold uppercase select-none">H₂O</span>
+            <span className="text-[10px] font-mono text-cyan-600 w-16 text-left font-bold uppercase select-none">H₂O</span>
           </div>
 
-          <div className="text-[11px] font-mono font-medium text-slate-400 flex items-center gap-2 select-none bg-slate-900/60 px-2.5 py-1 rounded-md border border-white/5 min-w-[70px] justify-center">
+          <div className="text-[11px] font-mono font-semibold text-slate-600 flex items-center gap-2 select-none bg-white px-2.5 py-1 rounded-md border border-slate-200 min-w-[70px] justify-center shadow-xs">
             {Math.round(progress * 100)} %
           </div>
         </div>

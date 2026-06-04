@@ -64,7 +64,7 @@ const GeneralModel = () => {
 
 export const ModelViewer = ({ type }: { type?: string }) => {
   return (
-    <div className="w-full h-32 bg-slate-900 rounded-xl overflow-hidden shadow-inner cursor-grab active:cursor-grabbing">
+    <div className="w-full h-32 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner cursor-grab active:cursor-grabbing">
       <Canvas camera={{ position: [0, 0, 3], fov: 45 }}>
         <ambientLight intensity={0.6} />
         <pointLight position={[10, 10, 10]} intensity={1.5} />

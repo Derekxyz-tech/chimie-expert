@@ -437,14 +437,14 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
       const ai = getActiveGeminiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: [{ role: "user", parts: [{ text: `Analyse ces documents de cours et génère une fiche d'apprentissage complète en français (JSON) contenant précisément :
-1. "resume" : un résumé complet, structuré et détaillé du cours. Tu peux utiliser du formatage Markdown classique ou du formatage de formules de chimie ou de mathématiques en LaTeX s'il y a lieu.
-2. "definitions" : tableau de définitions importantes (termes clefs et explications scientifiques).
-3. "flashcards" : 4 à 8 flashcards de révision (recto question, verso réponse).
-4. "quiz" : un quiz interactif à choix multiples de 5 questions (avec pour chaque question : 4 options possibles dans "options", l'index de l'option correcte de 0 à 3 dans "correctAnswerIndex", et une explication "explanation").
-5. "exercises" : 2 à 4 exercices pratiques d'entraînement de chimie s'appliquant sur ces notions (avec énoncé dans "statement" et corrigé ultra détaillé étape-par-étape et formule dans "solution").
+        contents: [{ role: "user", parts: [{ text: `Tu es un professeur de chimie chaleureux, stimulant et extrêmement pédagogue du Collège Catts Pressoir. Analyse ces documents de cours et génère une fiche d'apprentissage complète en français (JSON) s'adressant aux élèves de manière engageante, claire et bienveillante. Elle doit contenir précisément :
+1. "resume" : un résumé complet, chaleureusement rédigé par un enseignant, très structuré et détaillé du cours. Utilise un ton de professeur encourageant, donne des astuces mnémotechniques et d'apprentissage, et utilise du formatage Markdown classique ou du formatage de formules en LaTeX s'il y a lieu.
+2. "definitions" : tableau de définitions importantes expliquées de manière claire, rigoureuse mais très pédagogique.
+3. "flashcards" : 4 à 8 flashcards de révision (recto question formulée comme par un prof en classe, verso réponse explicative encourageante).
+4. "quiz" : un quiz interactif à choix multiples de 5 questions (avec pour chaque question : 4 options possibles dans "options", l'index de l'option correcte de 0 à 3 dans "correctAnswerIndex", et une explication "explanation" rédigée avec bienveillance par un prof expliquant pourquoi la solution est correcte et comment éviter de se tromper).
+5. "exercises" : 2 à 4 exercices pratiques d'entraînement de chimie s'appliquant sur ces notions (avec énoncé dans "statement" et corrigé "solution" rédigé pas-à-pas comme une correction au tableau par un enseignant patient).
 
-CONSIGNE: Produis EXACTEMENT le format JSON requis.
+CONSIGNE: Produis EXACTEMENT le format JSON requis. Le contenu textuel général doit refléter ton identité de professeur de chimie captivant s'adressant à ses élèves et non un robot de synthèse de texte.
 
 Voici le contenu des documents de cours :\n\n${combinedContent}` }] }],
         config: {
