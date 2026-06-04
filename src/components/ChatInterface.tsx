@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Sparkles, Bot, User as UserIcon, Loader2, Maximize2, Atom, UserCircle, ArrowRight, Star, X, BookOpen, PanelLeftOpen, ChevronDown, FlaskConical } from 'lucide-react';
+import { Send, Sparkles, Bot, User as UserIcon, Loader2, Maximize2, Atom, UserCircle, ArrowRight, Star, X, BookOpen, PanelLeftOpen, ChevronDown, FlaskConical, Video, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import TextareaAutosize from 'react-textarea-autosize';
 import { motion, AnimatePresence } from 'motion/react';
-import MoleculeViewer3D from './MoleculeViewer3D';
+import { SimpleMoleculeViewer } from './simplified3D/SimpleMoleculeViewer';
 import { ModelViewer } from './ModelViewer';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -29,6 +29,20 @@ interface ExplanatoryTerm {
   modelType: 'atom' | 'molecule' | 'general';
 }
 
+const getEmbedUrl = (url: string) => {
+  if (!url) return '';
+  let id = '';
+  if (url.includes('youtube.com/watch')) {
+    const params = new URLSearchParams(url.split('?')[1]);
+    id = params.get('v') || '';
+  } else if (url.includes('youtu.be/')) {
+    id = url.split('youtu.be/')[1]?.split('?')[0] || '';
+  } else if (url.includes('youtube.com/embed/')) {
+    return url;
+  }
+  return id ? `https://www.youtube.com/embed/${id}` : url;
+};
+
 interface ChatInterfaceProps {
   user: User | null;
   chatId: string | null;
@@ -45,6 +59,7 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
   const [personalDocs, setPersonalDocs] = useState<{name: string, content: string, type?: string, size?: number, createdAt?: Date}[]>([]);
   const [globalDocs, setGlobalDocs] = useState<{name: string, content: string, type?: string, size?: number, createdAt?: Date}[]>([]);
   const [selectedTerm, setSelectedTerm] = useState<ExplanatoryTerm | null>(null);
+  const [previewMedia, setPreviewMedia] = useState<{ name: string; content: string; type: string } | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("L'IA réfléchit...");
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef(chatId);
@@ -300,9 +315,16 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
         });
 
         const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+        const isVid = d.type?.startsWith('video/') || d.type === 'video/url' || d.content?.startsWith('data:video/') || /\.(mp4|webm|mov|ogg)$/i.test(d.name);
         if (isImg) {
           const isImageQuery = /image|affiche|montre|génère|dessine|photo|regarder|voir|schema|schéma/i.test(currentInput);
           if (isImageQuery) {
+            score += 15;
+          }
+        }
+        if (isVid) {
+          const isVideoQuery = /vidéo|video|film|étape|etape|expérience|experience|titration|reaction|réaction/i.test(currentInput);
+          if (isVideoQuery) {
             score += 15;
           }
         }
@@ -320,7 +342,14 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
       }
 
       const allFilesList = allDocuments
-        .map((d, i) => `- [${d.name}] (${d.type?.startsWith('image/') ? 'Image / Visuel' : 'Document de Cours'})`)
+        .map((d, i) => {
+          const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+          const isVid = d.type?.startsWith('video/') || d.type === 'video/url' || d.content?.startsWith('data:video/') || /\.(mp4|webm|mov|ogg)$/i.test(d.name);
+          let fileKind = 'Document de Cours';
+          if (isImg) fileKind = 'Image / Visuel';
+          if (isVid) fileKind = 'Vidéo';
+          return `- [${d.name}] (${fileKind})`;
+        })
         .join('\n');
 
       const context = allDocuments.length > 0 
@@ -332,11 +361,20 @@ ${allFilesList}
 DÉTAILS CONTEXTUELS ET CONTENUS DE VERITÉ :
 ${relevantDocs.map(d => {
   const isImg = d.type?.startsWith('image/') || d.content?.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(d.name);
+  const isVid = d.type?.startsWith('video/') || d.type === 'video/url' || d.content?.startsWith('data:video/') || /\.(mp4|webm|mov|ogg)$/i.test(d.name);
+  
   if (isImg) {
     return `[DOCUMENT IMAGE RECONNU]
 Nom du fichier : ${d.name}
 Type d'image : ${d.type || 'image/jpeg'}
 Instructions d'affichage : Si l'utilisateur veut voir cette image ou ce schéma (ou demande "affiche l'image" ou "montre"), écris le tag exact [[IMAGE:${d.name}]] à la fin ou au sein de ta réponse. C'est le seul moyen pour l'application d'afficher l'IMAGE RÉELLE de la base de données. Il est prioritaire d'indiquer cette balise.`;
+  }
+  if (isVid) {
+    return `[DOCUMENT VIDÉO RECONNU]
+Nom du fichier : ${d.name}
+Type de vidéo : ${d.type || 'video/mp4'}
+URL de la vidéo : ${d.content}
+Instructions d'affichage : Si l'utilisateur pose une question sur les étapes d'une expérience, demande d'afficher une vidéo, ou demande à voir l'illustration pratique en vidéo, écris le tag exact [[VIDEO:${d.name}]] à la fin ou au sein de ta réponse. C'est le seul moyen pour l'application d'afficher le LECTEUR VIDÉO INTERACTIF pour cette vidéo. Il est prioritaire d'indiquer cette balise.`;
   }
   return `[Fichier : ${d.name}]
 ${d.content}`;
@@ -360,9 +398,10 @@ ${d.content}`;
         config: {
           systemInstruction: `Tu es Chimie Expert, un assistant spécialisé opérant STRICTEMENT ET EXCLUSIVEMENT sur la base des documents de cours fournis dans le CONTEXTE.
           
-          RÈGLES CRITIQUES SUR LES IMAGES:
-          1. Si l'utilisateur demande de générer, afficher, dessiner ou de montrer une image/schéma disponible dans les documents de cours (par exemple une structure moléculaire, un diagramme d'oxydation, etc.), trouve le nom de fichier correspondant dans le CONTEXTE et insère EXACTEMENT ceci: [[IMAGE:nom_du_fichier.extension]] dans ton explication. C'est le seul moyen pour l'interface utilisateur d'afficher l'image réelle.
-          2. Tu peux lister une suite de plusieurs balises [[IMAGE:nom_du_fichier]] successives s'il demande une séquence d'images.
+          RÈGLES CRITIQUES SUR LES IMAGES ET VIDÉOS:
+          1. Si l'utilisateur demande d'afficher, de montrer, de dessiner ou de générer une image/schéma de cours présente dans le CONTEXTE, trouve le nom exact du fichier et insère [[IMAGE:nom_du_fichier.extension]] dans ton explication.
+          2. Si l'utilisateur pose une question sur les étapes d'une expérience (ou demande la vidéo d'une manipulation, un tutoriel ou les détails d'une titration), trouve le nom exact du fichier vidéo correspondant dans le CONTEXTE et insère [[VIDEO:nom_du_fichier.extension]] pour afficher le lecteur vidéo interactif en temps réel.
+          3. Pour les images/vidéos, évite de citer explicitement leurs noms de fichier dans ton texte direct pour que l'interface reste propre.
           
           RÈGLE D'OR (ZÉRO CONNAISSANCE EXTERNE): 
           1. Tu ne dois répondre qu'en utilisant les informations textuelles contenues dans le CONTEXTE fourni ci-dessous.
@@ -475,6 +514,8 @@ ${d.content}`;
       
       if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
         userFriendlyError = "Désolé, la limite d'utilisation de l'IA a été atteinte pour le moment. Veuillez réessayer dans quelques minutes.";
+      } else if (errorMessage) {
+        userFriendlyError = `${errorMessage}`;
       }
 
       // Add error message to chat
@@ -652,6 +693,7 @@ ${d.content}`;
                             animate={msg.id === animatingMessageId} 
                             onComplete={() => setAnimatingMessageId(null)}
                             onSelectTerm={setSelectedTerm}
+                            onPreviewMedia={setPreviewMedia}
                             allDocuments={allDocuments}
                           />
                         ) : (
@@ -665,7 +707,7 @@ ${d.content}`;
                           animate={{ opacity: 1, y: 0 }}
                           className="mt-4 rounded-2xl overflow-hidden border border-white/20 shadow-xl bg-slate-900"
                         >
-                          <MoleculeViewer3D molecule={msg.moleculeData} />
+                          <SimpleMoleculeViewer molecule={msg.moleculeData} />
                         </motion.div>
                       )}
                     </div>
@@ -772,6 +814,55 @@ ${d.content}`;
           </div>
         )}
       </AnimatePresence>
+
+      {/* Media Lightbox Zoom Modal */}
+      <AnimatePresence>
+        {previewMedia && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+            onClick={() => setPreviewMedia(null)}
+          >
+            <button 
+              onClick={() => setPreviewMedia(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div 
+              className="relative max-w-5xl max-h-[85vh] flex flex-col items-center justify-center gap-4 bg-slate-900/50 p-4 rounded-3xl border border-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {previewMedia.type === 'video/url' || previewMedia.type?.startsWith('video/') ? (
+                previewMedia.content.includes('youtube.com') || previewMedia.content.includes('youtu.be') ? (
+                  <iframe 
+                    src={getEmbedUrl(previewMedia.content)} 
+                    title={previewMedia.name}
+                    className="w-full max-w-4xl aspect-video rounded-2xl shadow-2xl border border-slate-800"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video 
+                    src={previewMedia.content} 
+                    controls 
+                    autoPlay
+                    className="w-full max-w-4xl max-h-[75vh] rounded-2xl shadow-2xl border border-slate-800 bg-black"
+                  />
+                )
+              ) : (
+                <img 
+                  src={previewMedia.content} 
+                  alt="Zoom" 
+                  className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-slate-800" 
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -830,12 +921,14 @@ function TypewriterMarkdown({
   animate, 
   onComplete,
   onSelectTerm,
+  onPreviewMedia,
   allDocuments = []
 }: { 
   content: string, 
   animate?: boolean, 
   onComplete?: () => void,
   onSelectTerm: (term: ExplanatoryTerm) => void,
+  onPreviewMedia?: (media: { name: string; content: string; type: string }) => void,
   allDocuments?: any[]
 }) {
   const [displayedText, setDisplayedText] = useState(animate ? '' : content);
@@ -887,20 +980,25 @@ function TypewriterMarkdown({
           const found = (allDocuments || []).find(
             d => d.name.toLowerCase() === imageName.toLowerCase()
           );
-          if (found && found.content && (found.content.startsWith('data:image/') || /\.(jpg|jpeg|png|webp)$/i.test(found.name))) {
+          if (found && found.content) {
             return (
-              <span key={i} className="block my-4 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md max-w-sm mx-auto relative group whitespace-normal">
+              <span 
+                key={i} 
+                onClick={() => onPreviewMedia?.({ name: found.name, content: found.content, type: found.type })}
+                className="block my-4 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md max-w-sm mx-auto relative group whitespace-normal cursor-zoom-in"
+              >
                 <img 
                   src={found.content} 
-                  alt={found.name} 
+                  alt="Aperçu du schéma" 
                   className="w-full h-auto object-contain max-h-60" 
                   referrerPolicy="no-referrer"
                 />
-                <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 backdrop-blur-sm p-2 text-white flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <span className="text-[10px] font-bold truncate pr-3">{found.name}</span>
+                <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 backdrop-blur-sm p-3 text-white flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <span className="text-[10px] font-bold">👀 Cliquer pour zoomer</span>
                   <a 
                     href={found.content} 
                     download={found.name}
+                    onClick={(e) => e.stopPropagation()}
                     className="text-[9px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2 py-1 rounded"
                   >
                     Télécharger
@@ -911,7 +1009,40 @@ function TypewriterMarkdown({
           } else {
             return (
               <span key={i} className="block my-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-200 whitespace-normal">
-                ⚠️ Image: <strong>{imageName}</strong> introuvable dans la base de données.
+                ⚠️ Image introuvable.
+              </span>
+            );
+          }
+        }
+
+        if (inner.startsWith('VIDEO:')) {
+          const videoName = inner.slice(6).trim();
+          const found = (allDocuments || []).find(
+            d => d.name.toLowerCase() === videoName.toLowerCase()
+          );
+          if (found && found.content) {
+            return (
+              <span 
+                key={i} 
+                onClick={() => onPreviewMedia?.({ name: found.name, content: found.content, type: found.type })}
+                className="block my-4 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md max-w-sm mx-auto relative group whitespace-normal cursor-pointer"
+              >
+                <div className="w-full h-40 bg-slate-950 flex flex-col items-center justify-center relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-transparent pointer-events-none" />
+                  <div className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center backdrop-blur-sm transform group-hover:scale-110 transition-transform duration-300 shadow-lg border border-white/40">
+                    <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-400 mt-3 tracking-widest uppercase pb-1 border-b border-white/10">Vidéo de Cours</span>
+                </div>
+                <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 backdrop-blur-sm p-3 text-white flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <span className="text-[10px] font-bold">▶️ Cliquer pour lire la vidéo</span>
+                </span>
+              </span>
+            );
+          } else {
+            return (
+              <span key={i} className="block my-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-200 whitespace-normal">
+                ⚠️ Vidéo introuvable.
               </span>
             );
           }

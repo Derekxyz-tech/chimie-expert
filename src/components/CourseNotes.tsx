@@ -15,7 +15,14 @@ import {
   ChevronRight,
   FileSearch,
   PanelLeftOpen,
-  FileImage
+  FileImage,
+  Brain,
+  Award,
+  HelpCircle,
+  Check,
+  RotateCcw,
+  Video,
+  Play
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -33,9 +40,41 @@ import 'katex/dist/katex.min.css';
 import { getActiveGeminiClient } from '../lib/gemini';
 import { db, User, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { Type } from "@google/genai";
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+
+interface DefinitionItem {
+  term: string;
+  definition: string;
+}
+
+interface FlashcardItem {
+  question: string;
+  answer: string;
+}
+
+interface QuizItem {
+  question: string;
+  options: string[];
+  correctAnswerIndex: number;
+  explanation: string;
+}
+
+interface ExerciseItem {
+  title: string;
+  statement: string;
+  solution: string;
+}
+
+interface CourseAnalysis {
+  resume: string;
+  definitions: DefinitionItem[];
+  flashcards: FlashcardItem[];
+  quiz: QuizItem[];
+  exercises: ExerciseItem[];
+}
 
 interface CourseFile {
   id: string;
@@ -57,12 +96,24 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
   const [globalFiles, setGlobalFiles] = useState<CourseFile[]>([]);
   const [isGlobalMode, setIsGlobalMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+  const [newVideoName, setNewVideoName] = useState('');
+  const [newVideoUrl, setNewVideoUrl] = useState('');
+  const [previewMedia, setPreviewMedia] = useState<{ name: string; content: string; type: string } | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<CourseAnalysis | null>(null);
   const [activeTab, setActiveTab] = useState<'files' | 'analysis'>('files');
+  const [currentSubTab, setCurrentSubTab] = useState<'resume' | 'definitions' | 'flashcards' | 'quiz' | 'exercises'>('resume');
+
+  // Interactive analysis sub-states
+  const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [currentQuizIdx, setCurrentQuizIdx] = useState<number>(0);
+  const [isQuizComplete, setIsQuizComplete] = useState<boolean>(false);
+  const [expandedSolutions, setExpandedSolutions] = useState<Record<number, boolean>>({});
 
   const isAdmin = user?.email && ["ghostytb77777@gmail.com", "christianst731@gmail.com", "cyrillealexandrinahall@gmail.com"].includes(user.email);
   const files = isGlobalMode ? globalFiles : personalFiles;
@@ -175,6 +226,46 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     return () => unsubscribe();
   }, []);
 
+  const getEmbedUrl = (url: string) => {
+    if (!url) return '';
+    let id = '';
+    if (url.includes('youtube.com/watch')) {
+      const params = new URLSearchParams(url.split('?')[1]);
+      id = params.get('v') || '';
+    } else if (url.includes('youtu.be/')) {
+      id = url.split('youtu.be/')[1]?.split('?')[0] || '';
+    } else if (url.includes('youtube.com/embed/')) {
+      return url;
+    }
+    return id ? `https://www.youtube.com/embed/${id}` : url;
+  };
+
+  const addVideoByUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newVideoName || !newVideoUrl) return;
+    
+    setIsProcessing(true);
+    const path = isGlobalMode ? 'knowledge_base' : `users/${user.uid}/documents`;
+    
+    try {
+      await addDoc(collection(db, path), {
+        uid: user.uid,
+        name: newVideoName,
+        content: newVideoUrl,
+        type: 'video/url',
+        size: 0,
+        createdAt: serverTimestamp()
+      });
+      setIsUrlModalOpen(false);
+      setNewVideoName('');
+      setNewVideoUrl('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, path);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!user) return;
     if (isGlobalMode && !isAdmin) return;
@@ -202,7 +293,7 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
           const arrayBuffer = await file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           text = result.value;
-        } else if (file.type.startsWith('image/')) {
+        } else if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
           text = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result as string);
@@ -238,7 +329,11 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
       'text/plain': ['.txt'],
       'image/jpeg': ['.jpeg', '.jpg'],
       'image/png': ['.png'],
-      'image/webp': ['.webp']
+      'image/webp': ['.webp'],
+      'video/mp4': ['.mp4'],
+      'video/webm': ['.webm'],
+      'video/ogg': ['.ogg'],
+      'video/quicktime': ['.mov']
     }
   });
 
@@ -273,41 +368,128 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     return files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [files, searchQuery]);
 
-  const handleAnalyze = async () => {
-    if (selectedFileIds.length === 0) return;
+  const triggerAnalysisWithFileIds = async (fileIds: string[]) => {
+    if (fileIds.length === 0) return;
     
     setIsAnalyzing(true);
     setActiveTab('analysis');
     setAnalysisResult(null);
 
-    const selectedFiles = files.filter(f => selectedFileIds.includes(f.id));
+    // Reset interaction sub-states
+    setFlippedCards({});
+    setQuizAnswers({});
+    setCurrentQuizIdx(0);
+    setIsQuizComplete(false);
+    setExpandedSolutions({});
+    setCurrentSubTab('resume');
+
+    const selectedFiles = files.filter(f => fileIds.includes(f.id));
     const combinedContent = selectedFiles.map(f => `FILE: ${f.name}\nCONTENT: ${f.content}`).join('\n\n---\n\n');
 
     try {
       const ai = getActiveGeminiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: [{ role: "user", parts: [{ text: `Analyse ces documents de cours de chimie et fournis un résumé structuré, les concepts clés, et des questions d'entraînement potentielles. 
-        
-        RÈGLE: Utilise EXCLUSIVEMENT les informations contenues dans ces documents. Ne rajoute pas de connaissances extérieures.
-        
-        Voici les documents :\n\n${combinedContent}` }] }],
+        contents: [{ role: "user", parts: [{ text: `Analyse ces documents de cours et génère une fiche d'apprentissage complète en français (JSON) contenant précisément :
+1. "resume" : un résumé complet, structuré et détaillé du cours. Tu peux utiliser du formatage Markdown classique ou du formatage de formules de chimie ou de mathématiques en LaTeX s'il y a lieu.
+2. "definitions" : tableau de définitions importantes (termes clefs et explications scientifiques).
+3. "flashcards" : 4 à 8 flashcards de révision (recto question, verso réponse).
+4. "quiz" : un quiz interactif à choix multiples de 5 questions (avec pour chaque question : 4 options possibles dans "options", l'index de l'option correcte de 0 à 3 dans "correctAnswerIndex", et une explication "explanation").
+5. "exercises" : 2 à 4 exercices pratiques d'entraînement de chimie s'appliquant sur ces notions (avec énoncé dans "statement" et corrigé ultra détaillé étape-par-étape et formule dans "solution").
+
+CONSIGNE: Produis EXACTEMENT le format JSON requis.
+
+Voici le contenu des documents de cours :\n\n${combinedContent}` }] }],
         config: {
-          systemInstruction: "Tu es un expert en analyse de documents pédagogiques. Ton rôle est de synthétiser fidèlement le contenu fourni sans jamais inventer d'informations. Ne commence pas tes phrases par 'Selon les documents' ou similaire, présente l'analyse directement."
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              resume: { type: Type.STRING },
+              definitions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    term: { type: Type.STRING },
+                    definition: { type: Type.STRING }
+                  },
+                  required: ["term", "definition"]
+                }
+              },
+              flashcards: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    question: { type: Type.STRING },
+                    answer: { type: Type.STRING }
+                  },
+                  required: ["question", "answer"]
+                }
+              },
+              quiz: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    question: { type: Type.STRING },
+                    options: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING }
+                    },
+                    correctAnswerIndex: { type: Type.INTEGER },
+                    explanation: { type: Type.STRING }
+                  },
+                  required: ["question", "options", "correctAnswerIndex", "explanation"]
+                }
+              },
+              exercises: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    statement: { type: Type.STRING },
+                    solution: { type: Type.STRING }
+                  },
+                  required: ["title", "statement", "solution"]
+                }
+              }
+            },
+            required: ["resume", "definitions", "flashcards", "quiz", "exercises"]
+          },
+          systemInstruction: "Tu es un enseignant expert en chimie et pédagogie. Ton rôle est de concevoir une fiche d'apprentissage interactive et complète à partir des notes de cours fournies."
         }
       });
       
       if (!response.text) {
-        throw new Error("No text returned from AI");
+        throw new Error("Aucun texte reçu de l'IA.");
       }
       
-      setAnalysisResult(response.text);
+      const parsed = JSON.parse(response.text) as CourseAnalysis;
+      setAnalysisResult(parsed);
     } catch (error) {
-      console.error("Analysis failed:", error);
-      setAnalysisResult(`Une erreur est survenue lors de l'analyse: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+      console.error("Analysis generation failed:", error);
+      setAnalysisResult({
+        resume: `Une erreur est survenue lors de la génération de la fiche d'apprentissage. Veuillez réessayer.\n\nType d'erreur : ${error instanceof Error ? error.message : 'Format invalide'}`,
+        definitions: [
+          { term: "Erreur de chargement", definition: "Impossible d'extraire de manière structurée les définitions de ce fichier." }
+        ],
+        flashcards: [
+          { question: "Pourquoi ce message s'affiche ?", answer: "L'analyse automatique du document a rencontré un problème d'interprétation." }
+        ],
+        quiz: [],
+        exercises: []
+      });
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleAnalyze = async () => {
+    if (selectedFileIds.length === 0) return;
+    await triggerAnalysisWithFileIds(selectedFileIds);
   };
 
   const formatSize = (bytes: number) => {
@@ -448,14 +630,27 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                     </p>
                     <p className="text-sm text-slate-500 max-w-xs mx-auto font-medium">
                       {isGlobalMode 
-                        ? "Ces fichiers seront utilisés par l'IA pour TOUS les utilisateurs du site."
-                        : "Supporte PDF, DOCX et TXT. L'IA peut analyser plusieurs fichiers simultanément."
+                        ? "Ces fichiers seront utilisés par l'IA pour TOUS les utilisateurs (PDF, DOCX, TXT, Images, Vidéos)."
+                        : "Supporte PDF, DOCX, TXT, les images et les fiches vidéo."
                       }
                     </p>
                   </div>
-                  <Button variant="outline" className="rounded-xl border-slate-200 text-slate-900 font-bold text-xs uppercase tracking-widest px-8 bg-white hover:bg-slate-50 shadow-sm">
-                    Parcourir les fichiers
-                  </Button>
+                  <div className="flex flex-wrap justify-center gap-3" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="outline" onClick={() => {
+                      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+                      if (fileInput) fileInput.click();
+                    }} className="rounded-xl border-slate-200 text-slate-900 font-bold text-xs uppercase tracking-widest px-8 bg-white hover:bg-slate-50 shadow-sm">
+                      Parcourir les fichiers
+                    </Button>
+                    {isAdmin && isGlobalMode && (
+                      <Button variant="outline" onClick={() => {
+                        setIsUrlModalOpen(true);
+                      }} className="rounded-xl border-indigo-250 text-indigo-600 font-bold text-xs uppercase tracking-widest px-6 bg-indigo-50/50 hover:bg-indigo-50 shadow-sm gap-1.5">
+                        <Video className="w-4 h-4" />
+                        Ajouter un lien vidéo
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Search & Actions */}
@@ -514,7 +709,14 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                           >
                             <div className="flex items-start justify-between mb-4">
                               {file.type?.startsWith('image/') && file.content?.startsWith('data:image/') ? (
-                                <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-50 relative group-hover:scale-105 transition-transform duration-300">
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPreviewMedia({ name: file.name, content: file.content, type: file.type });
+                                  }}
+                                  className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-50 relative group-hover:scale-105 transition-transform duration-300 cursor-zoom-in shrink-0"
+                                  title="Cliquez pour agrandir"
+                                >
                                   <img 
                                     src={file.content} 
                                     alt={file.name} 
@@ -522,9 +724,23 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                                     referrerPolicy="no-referrer"
                                   />
                                 </div>
+                              ) : (file.type?.startsWith('video/') || file.type === 'video/url') ? (
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPreviewMedia({ name: file.name, content: file.content, type: file.type });
+                                  }}
+                                  className="w-12 h-12 rounded-xl flex items-center justify-center bg-purple-50 text-purple-600 border border-purple-200 shadow-sm relative group-hover:scale-105 transition-transform duration-300 cursor-pointer shrink-0"
+                                  title="Cliquez pour lire la vidéo"
+                                >
+                                  <Video className="w-5 h-5 absolute" />
+                                  <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Play className="w-4 h-4 text-white fill-white" />
+                                  </div>
+                                </div>
                               ) : (
                                 <div className={cn(
-                                  "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                                  "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0",
                                   selectedFileIds.includes(file.id) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600'
                                 )}>
                                   {file.type === 'application/pdf' ? (
@@ -548,10 +764,24 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                             </div>
                             <div className="space-y-1">
                               <h3 className="text-sm font-bold text-slate-900 truncate pr-4">{file.name}</h3>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                                <span>{formatSize(file.size)}</span>
-                                <span>•</span>
-                                <span>{file.uploadDate.toLocaleDateString()}</span>
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium uppercase tracking-wider pt-1.5 border-t border-slate-100 mt-2">
+                                <div className="flex items-center gap-1.5 text-slate-400">
+                                  <span>{formatSize(file.size)}</span>
+                                  <span>•</span>
+                                  <span>{file.uploadDate.toLocaleDateString()}</span>
+                                </div>
+                                <button
+                                  id={`gen-btn-${file.id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedFileIds([file.id]);
+                                    triggerAnalysisWithFileIds([file.id]);
+                                  }}
+                                  className="flex items-center gap-1 text-[10px] uppercase font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50/50 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-all duration-200"
+                                >
+                                  <Sparkles className="w-3 h-3 animate-pulse text-indigo-500" />
+                                  <span>Générer</span>
+                                </button>
                               </div>
                             </div>
                           </Card>
@@ -600,13 +830,31 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
                                   {file.type?.startsWith('image/') && file.content?.startsWith('data:image/') ? (
-                                    <div className="w-8 h-8 rounded overflow-hidden border border-slate-200 bg-slate-50 flex-shrink-0">
+                                    <div 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPreviewMedia({ name: file.name, content: file.content, type: file.type });
+                                      }}
+                                      className="w-8 h-8 rounded overflow-hidden border border-slate-200 bg-slate-50 flex-shrink-0 cursor-zoom-in"
+                                      title="Cliquez pour agrandir"
+                                    >
                                       <img 
                                         src={file.content} 
                                         alt={file.name} 
                                         className="w-full h-full object-cover" 
                                         referrerPolicy="no-referrer"
                                       />
+                                    </div>
+                                  ) : (file.type?.startsWith('video/') || file.type === 'video/url') ? (
+                                    <div 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPreviewMedia({ name: file.name, content: file.content, type: file.type });
+                                      }}
+                                      className="w-8 h-8 rounded border border-purple-200 bg-purple-50 flex items-center justify-center flex-shrink-0 cursor-pointer text-purple-600 hover:bg-purple-100"
+                                      title="Cliquez pour lire la vidéo"
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-purple-600" />
                                     </div>
                                   ) : (
                                     <div className={cn(
@@ -626,10 +874,23 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                               <td className="px-6 py-4 text-xs text-slate-500">{formatSize(file.size)}</td>
                               <td className="px-6 py-4 text-xs text-slate-500">{file.uploadDate.toLocaleDateString()}</td>
                               <td className="px-6 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
+                                <div className="flex items-center justify-end gap-3" onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    id={`gen-row-${file.id}`}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedFileIds([file.id]);
+                                      triggerAnalysisWithFileIds([file.id]);
+                                    }}
+                                    className="h-8 text-[10px] uppercase font-bold text-indigo-600 hover:text-white border-indigo-200 hover:bg-indigo-600 hover:border-indigo-600 gap-1 rounded-xl transition-all"
+                                  >
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>Générer d'un clic</span>
+                                  </Button>
                                   {selectedFileIds.includes(file.id) && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
                                   <button 
-                                    onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
+                                    onClick={() => removeFile(file.id)}
                                     className="p-2 text-slate-400 hover:text-rose-500 rounded-lg transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -675,19 +936,383 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
                     animate={{ opacity: 1, y: 0 }}
                     className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden"
                   >
-                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <Sparkles className="w-5 h-5 text-indigo-600" />
-                        <h3 className="font-bold text-slate-900">Résultat de l'analyse</h3>
+                        <div>
+                          <h3 className="font-bold text-slate-900">Fiche d'Apprentissage Interactive</h3>
+                          <p className="text-[10px] text-slate-500 font-medium uppercase tracking-widest mt-0.5">Automatique • Génération en un clic</p>
+                        </div>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => setAnalysisResult(null)} className="text-slate-400 hover:text-slate-900">
-                        Effacer
+                      <Button variant="ghost" size="sm" onClick={() => setAnalysisResult(null)} className="text-slate-400 hover:text-slate-900 h-8 text-xs uppercase font-bold tracking-wider">
+                        Effacer la Fiche
                       </Button>
                     </div>
+
+                    {/* Sub-tab navigation */}
+                    <div className="border-b border-slate-100 bg-slate-50/30 p-2 flex flex-wrap gap-2 justify-center">
+                      {(['resume', 'definitions', 'flashcards', 'quiz', 'exercises'] as const).map((subTab) => {
+                        const labels = {
+                          resume: "Résumé 📝",
+                          definitions: "Définitions 📖",
+                          flashcards: "Flashcards 🎴",
+                          quiz: "Quiz ⚡",
+                          exercises: "Exercices 🧪"
+                        };
+                        const active = currentSubTab === subTab;
+                        return (
+                          <Button
+                            id={`subtab-btn-${subTab}`}
+                            key={subTab}
+                            variant={active ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setCurrentSubTab(subTab)}
+                            className={cn(
+                              "text-xs font-bold uppercase tracking-wider rounded-xl py-2 px-4 transition-all h-9",
+                              active 
+                                ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md" 
+                                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                            )}
+                          >
+                            {labels[subTab]}
+                          </Button>
+                        );
+                      })}
+                    </div>
+
                     <div className="p-8">
-                      <div className="markdown-body prose max-w-none prose-sm prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:text-white">
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{analysisResult}</ReactMarkdown>
-                      </div>
+                      {/* Sub-tab content panes */}
+                      {currentSubTab === 'resume' && (
+                        <div id="panel-resume" className="space-y-6">
+                          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                            <BookOpen className="w-5 h-5 text-indigo-600" />
+                            <h4 className="text-base font-bold text-slate-900 uppercase tracking-tight">Résumé thématique du cours</h4>
+                          </div>
+                          <div className="markdown-body prose max-w-none prose-sm prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:text-white leading-relaxed">
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                              {analysisResult.resume}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
+
+                      {currentSubTab === 'definitions' && (
+                        <div id="panel-definitions" className="space-y-6">
+                          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                            <Brain className="w-5 h-5 text-indigo-600" />
+                            <h4 className="text-base font-bold text-slate-900 uppercase tracking-tight">Définitions importantes à connaître</h4>
+                          </div>
+                          {analysisResult.definitions && analysisResult.definitions.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {analysisResult.definitions.map((def, idx) => (
+                                <div 
+                                  id={`def-card-${idx}`}
+                                  key={idx} 
+                                  className="p-5 bg-slate-50/50 hover:bg-slate-50 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col gap-2 hover:shadow-md transition-all duration-300 group"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2 h-4 bg-indigo-500 rounded-full group-hover:bg-indigo-600 transition-colors" />
+                                    <h5 className="font-display font-black text-slate-950 text-sm tracking-tight">{def.term}</h5>
+                                  </div>
+                                  <p className="text-xs text-slate-600 font-medium leading-relaxed pl-4">
+                                    {def.definition}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500 text-center py-6">Aucune définition n'a été identifiée pour ce document.</p>
+                          )}
+                        </div>
+                      )}
+
+                      {currentSubTab === 'flashcards' && (
+                        <div id="panel-flashcards" className="space-y-6">
+                          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                            <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
+                            <h4 className="text-base font-bold text-slate-900 uppercase tracking-tight">Flashcards d'auto-évaluation</h4>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-6 font-medium">Cliquez sur une carte pour la retourner et voir l'explication au verso.</p>
+                          {analysisResult.flashcards && analysisResult.flashcards.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                              {analysisResult.flashcards.map((card, idx) => {
+                                const isFlipped = !!flippedCards[idx];
+                                return (
+                                  <div 
+                                    id={`flashcard-${idx}`}
+                                    key={idx} 
+                                    onClick={() => setFlippedCards(p => ({ ...p, [idx]: !p[idx] }))}
+                                    className="w-full h-44 cursor-pointer relative"
+                                    style={{ perspective: "1000px" }}
+                                  >
+                                    <div 
+                                      className="w-full h-full relative text-center shadow-sm hover:shadow-md transition-transform duration-500"
+                                      style={{ 
+                                        transformStyle: "preserve-3d",
+                                        transform: isFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
+                                        transition: "transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)"
+                                      }}
+                                    >
+                                      {/* Front Side */}
+                                      <div 
+                                        className="absolute inset-0 bg-gradient-to-br from-indigo-50/40 to-white border border-slate-200/85 rounded-2xl p-6 flex flex-col justify-between"
+                                        style={{ backfaceVisibility: "hidden" }}
+                                      >
+                                        <div className="text-[10px] uppercase font-bold text-indigo-600 tracking-wider">Question de révision</div>
+                                        <p className="text-xs font-bold text-slate-800 text-center flex-1 flex items-center justify-center my-2 leading-relaxed">
+                                          {card.question}
+                                        </p>
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Cliquer pour révéler</span>
+                                      </div>
+                                      {/* Back Side */}
+                                      <div 
+                                        className="absolute inset-0 bg-slate-950 text-white border border-slate-900 rounded-2xl p-6 flex flex-col justify-between"
+                                        style={{ 
+                                          backfaceVisibility: "hidden", 
+                                          transform: "rotateY(180deg)" 
+                                        }}
+                                      >
+                                        <div className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">Réponse / Explication</div>
+                                        <p className="text-xs font-semibold leading-relaxed text-center flex-1 flex items-center justify-center my-2 overflow-y-auto px-1 text-slate-200">
+                                          {card.answer}
+                                        </p>
+                                        <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-widest">Cliquer pour retourner</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500 text-center py-6">Aucune flashcard disponible.</p>
+                          )}
+                        </div>
+                      )}
+
+                      {currentSubTab === 'quiz' && (
+                        <div id="panel-quiz" className="space-y-6">
+                          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                            <div className="flex items-center gap-2">
+                              <Award className="w-5 h-5 text-indigo-600" />
+                              <h4 className="text-base font-bold text-slate-900 uppercase tracking-tight">Test de Connaissances Express</h4>
+                            </div>
+                            {analysisResult.quiz && analysisResult.quiz.length > 0 && !isQuizComplete && (
+                              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                                Question {currentQuizIdx + 1} / {analysisResult.quiz.length}
+                              </span>
+                            )}
+                          </div>
+
+                          {analysisResult.quiz && analysisResult.quiz.length > 0 ? (
+                            isQuizComplete ? (
+                              <div id="quiz-completion-score" className="text-center py-8 space-y-6">
+                                <div className="w-20 h-20 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto text-emerald-600">
+                                  <Award className="w-10 h-10" />
+                                </div>
+                                <div className="space-y-2">
+                                  <h5 className="text-xl font-display font-black text-slate-900 uppercase tracking-tight">Quiz Terminé !</h5>
+                                  <p className="text-sm text-slate-600 font-semibold">
+                                    Votre score : <span className="text-indigo-600 font-extrabold text-base">
+                                      {analysisResult.quiz.reduce((score, q, idx) => score + (quizAnswers[idx] === q.correctAnswerIndex ? 1 : 0), 0)}
+                                    </span> sur <span className="font-extrabold text-slate-900">{analysisResult.quiz.length}</span>
+                                  </p>
+                                </div>
+                                <div className="max-w-md mx-auto bg-slate-50 border border-slate-200/60 rounded-2xl p-4 text-left divide-y divide-slate-200/50">
+                                  {analysisResult.quiz.map((q, idx) => {
+                                    const userAns = quizAnswers[idx];
+                                    const isCorrect = userAns === q.correctAnswerIndex;
+                                    return (
+                                      <div key={idx} className="py-3 first:pt-0 last:pb-0 space-y-1">
+                                        <div className="flex items-start gap-2">
+                                          {isCorrect ? (
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                                          ) : (
+                                            <X className="w-4 h-4 text-rose-500 mt-0.5 flex-shrink-0" />
+                                          )}
+                                          <div>
+                                            <p className="text-xs font-bold text-slate-900">{q.question}</p>
+                                            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                                              Réponse correcte : <span className="font-semibold text-emerald-600">{q.options[q.correctAnswerIndex]}</span>
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                <Button 
+                                  onClick={() => {
+                                    setQuizAnswers({});
+                                    setCurrentQuizIdx(0);
+                                    setIsQuizComplete(false);
+                                  }}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl gap-2 font-bold text-xs uppercase tracking-widest px-6 h-10"
+                                >
+                                  <RotateCcw className="w-4 h-4" />
+                                  <span>Recommencer le quiz</span>
+                                </Button>
+                              </div>
+                            ) : (
+                              (() => {
+                                const currentQ = analysisResult.quiz[currentQuizIdx];
+                                const selectedOptionIdx = quizAnswers[currentQuizIdx];
+                                const hasAnswered = selectedOptionIdx !== undefined;
+
+                                return (
+                                  <div id={`quiz-question-box-${currentQuizIdx}`} className="space-y-6">
+                                    <div className="bg-indigo-50/30 border border-indigo-100 rounded-2xl p-5">
+                                      <h5 className="font-display font-bold text-slate-900 text-sm leading-relaxed">
+                                        {currentQ.question}
+                                      </h5>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      {currentQ.options.map((option, idx) => {
+                                        const isSelected = selectedOptionIdx === idx;
+                                        const isCorrectOpt = idx === currentQ.correctAnswerIndex;
+                                        
+                                        // Colors mapping on answer submit
+                                        let btnClass = "bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300";
+                                        if (hasAnswered) {
+                                          if (isCorrectOpt) {
+                                            btnClass = "bg-emerald-50 border-emerald-300 text-emerald-950 font-bold shadow-sm";
+                                          } else if (isSelected) {
+                                            btnClass = "bg-rose-50 border-rose-200 text-rose-950 font-medium";
+                                          } else {
+                                            btnClass = "bg-white border-slate-100 text-slate-400 opacity-70";
+                                          }
+                                        }
+
+                                        return (
+                                          <button
+                                            id={`quiz-option-${idx}`}
+                                            key={idx}
+                                            disabled={hasAnswered}
+                                            onClick={() => {
+                                              setQuizAnswers(prev => ({ ...prev, [currentQuizIdx]: idx }));
+                                            }}
+                                            className={cn(
+                                              "p-4 rounded-xl text-left border text-xs font-medium transition-all duration-300 flex items-center justify-between w-full shadow-sm",
+                                              btnClass
+                                            )}
+                                          >
+                                            <span className="leading-relaxed">{option}</span>
+                                            {hasAnswered && isCorrectOpt && <Check className="w-4 h-4 text-emerald-600 flex-shrink-0 font-bold" />}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    <AnimatePresence>
+                                      {hasAnswered && (
+                                        <motion.div 
+                                          initial={{ opacity: 0, y: 10 }}
+                                          animate={{ opacity: 1, y: 0 }}
+                                          className="p-5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2"
+                                        >
+                                          <h6 className="text-[10px] uppercase font-bold text-indigo-600 tracking-wider">Explication Scientifique</h6>
+                                          <p className="text-xs text-slate-700 leading-relaxed font-semibold">
+                                            {currentQ.explanation}
+                                          </p>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+
+                                    <div className="flex justify-end pt-2">
+                                      <Button
+                                        disabled={!hasAnswered}
+                                        onClick={() => {
+                                          if (currentQuizIdx < analysisResult.quiz.length - 1) {
+                                            setCurrentQuizIdx(prev => prev + 1);
+                                          } else {
+                                            setIsQuizComplete(true);
+                                          }
+                                        }}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl gap-2 font-bold text-xs uppercase tracking-widest px-6 h-10 disabled:bg-slate-100 disabled:text-slate-400"
+                                      >
+                                        <span>
+                                          {currentQuizIdx < analysisResult.quiz.length - 1 ? "Question Suivante" : "Terminer et voir le score"}
+                                        </span>
+                                        <ChevronRight className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                );
+                              })()
+                            )
+                          ) : (
+                            <p className="text-sm text-slate-500 text-center py-6">Aucun quiz disponible pour ce cours.</p>
+                          )}
+                        </div>
+                      )}
+
+                      {currentSubTab === 'exercises' && (
+                        <div id="panel-exercises" className="space-y-6">
+                          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                            <HelpCircle className="w-5 h-5 text-indigo-600" />
+                            <h4 className="text-base font-bold text-slate-900 uppercase tracking-tight">Exercices d'entraînement pratique</h4>
+                          </div>
+                          {analysisResult.exercises && analysisResult.exercises.length > 0 ? (
+                            <div className="space-y-6">
+                              {analysisResult.exercises.map((ex, idx) => {
+                                const showSolution = !!expandedSolutions[idx];
+                                return (
+                                  <div 
+                                    id={`ex-card-${idx}`}
+                                    key={idx} 
+                                    className="p-6 bg-slate-50/50 hover:bg-slate-50/80 rounded-2xl border border-slate-200/70 shadow-sm space-y-4 transition-all duration-300"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-5 h-5 rounded-full bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[10px] flex items-center justify-center">
+                                        {idx + 1}
+                                      </span>
+                                      <h5 className="font-display font-black text-slate-900 text-sm uppercase tracking-tight">{ex.title}</h5>
+                                    </div>
+                                    <div className="prose prose-sm max-w-none text-xs text-slate-700 leading-relaxed font-semibold pl-1">
+                                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                        {ex.statement}
+                                      </ReactMarkdown>
+                                    </div>
+
+                                    <div className="pt-2 border-t border-slate-200/50 flex flex-col gap-3">
+                                      <button
+                                        id={`toggle-sol-btn-${idx}`}
+                                        onClick={() => setExpandedSolutions(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                        className="text-[10px] uppercase font-bold text-indigo-600 hover:text-indigo-900 flex items-center gap-1 w-fit transition-colors"
+                                      >
+                                        <span>{showSolution ? "Masquer la solution rédigée ▲" : "Afficher la solution rédigée ▼"}</span>
+                                      </button>
+
+                                      <AnimatePresence>
+                                        {showSolution && (
+                                          <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: "auto" }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="overflow-hidden bg-emerald-50/40 border border-emerald-100 rounded-xl p-5 mt-2 shadow-inner"
+                                          >
+                                            <div className="flex items-center gap-2 mb-2">
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                              <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider">Correction pas-à-pas</span>
+                                            </div>
+                                            <div className="prose prose-sm max-w-none text-xs text-emerald-950 font-medium leading-relaxed leading-slate">
+                                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                                {ex.solution}
+                                              </ReactMarkdown>
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500 text-center py-6">Aucun devoir ou exercice disponible.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ) : (
@@ -711,6 +1336,129 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
           </div>
         </ScrollArea>
       </div>
+
+      {/* Video URL Form Modal */}
+      <AnimatePresence>
+        {isUrlModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 pointer-events-auto"
+            onClick={() => setIsUrlModalOpen(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl border border-slate-200 p-6 w-full max-w-md shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button 
+                onClick={() => setIsUrlModalOpen(false)}
+                className="absolute top-4 right-4 p-1 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2 mb-4">
+                <Video className="w-5 h-5 text-indigo-600 animate-pulse" />
+                <h3 className="font-display font-black text-slate-900 text-base uppercase tracking-tight">Ajouter un lien vidéo</h3>
+              </div>
+              <form onSubmit={addVideoByUrl} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Titre de la vidéo</label>
+                  <Input 
+                    placeholder="Ex: Expérience de titration d'acide ou Synthèse de l'eau"
+                    value={newVideoName}
+                    onChange={(e) => setNewVideoName(e.target.value)}
+                    required
+                    className="rounded-xl border-slate-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">URL de la vidéo (YouTube ou Direct)</label>
+                  <Input 
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={newVideoUrl}
+                    onChange={(e) => setNewVideoUrl(e.target.value)}
+                    required
+                    className="rounded-xl border-slate-200"
+                  />
+                  <p className="text-[9px] text-slate-400 leading-relaxed pt-0.5 font-medium">
+                    Prend en charge les liens vidéo standard YouTube, les partages et les URL directes de vidéos MP4/WEBM.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button 
+                    type="button" 
+                    variant="ghost" 
+                    onClick={() => setIsUrlModalOpen(false)}
+                    className="rounded-xl text-xs uppercase font-bold tracking-wider text-slate-500 hover:text-slate-900 h-10"
+                  >
+                    Annuler
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    disabled={isProcessing}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs uppercase font-bold tracking-wider px-6 h-10"
+                  >
+                    {isProcessing ? "Enregistrement..." : "Ajouter la vidéo"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Media Lightbox Zoom Modal */}
+      <AnimatePresence>
+        {previewMedia && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+            onClick={() => setPreviewMedia(null)}
+          >
+            <button 
+              onClick={() => setPreviewMedia(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div 
+              className="relative max-w-5xl max-h-[85vh] flex flex-col items-center justify-center gap-4 bg-slate-900/50 p-4 rounded-3xl border border-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {previewMedia.type === 'video/url' || previewMedia.type?.startsWith('video/') ? (
+                previewMedia.content.includes('youtube.com') || previewMedia.content.includes('youtu.be') ? (
+                  <iframe 
+                    src={getEmbedUrl(previewMedia.content)} 
+                    title={previewMedia.name}
+                    className="w-full max-w-4xl aspect-video rounded-2xl shadow-2xl border border-slate-800"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video 
+                    src={previewMedia.content} 
+                    controls 
+                    autoPlay
+                    className="w-full max-w-4xl max-h-[75vh] rounded-2xl shadow-2xl border border-slate-800 bg-black"
+                  />
+                )
+              ) : (
+                <img 
+                  src={previewMedia.content} 
+                  alt="Zoom" 
+                  className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-slate-800" 
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
