@@ -99,6 +99,9 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
   const [newVideoName, setNewVideoName] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
+  const [videoSource, setVideoSource] = useState<'file' | 'url'>('file');
+  const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [previewMedia, setPreviewMedia] = useState<{ name: string; content: string; type: string } | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -226,6 +229,14 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     return () => unsubscribe();
   }, []);
 
+  const handleCloseUrlModal = () => {
+    setIsUrlModalOpen(false);
+    setNewVideoName('');
+    setNewVideoUrl('');
+    setSelectedVideoFile(null);
+    setVideoError(null);
+  };
+
   const getEmbedUrl = (url: string) => {
     if (!url) return '';
     let id = '';
@@ -240,26 +251,62 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
     return id ? `https://www.youtube.com/embed/${id}` : url;
   };
 
-  const addVideoByUrl = async (e: React.FormEvent) => {
+  const addVideo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !newVideoName || !newVideoUrl) return;
+    if (!user) return;
     
     setIsProcessing(true);
+    setVideoError(null);
     const path = isGlobalMode ? 'knowledge_base' : `users/${user.uid}/documents`;
     
     try {
-      await addDoc(collection(db, path), {
-        uid: user.uid,
-        name: newVideoName,
-        content: newVideoUrl,
-        type: 'video/url',
-        size: 0,
-        createdAt: serverTimestamp()
-      });
-      setIsUrlModalOpen(false);
-      setNewVideoName('');
-      setNewVideoUrl('');
-    } catch (err) {
+      if (videoSource === 'url') {
+        if (!newVideoName || !newVideoUrl) {
+          throw new Error("Veuillez remplir tous les champs obligatoires.");
+        }
+        await addDoc(collection(db, path), {
+          uid: user.uid,
+          name: newVideoName,
+          content: newVideoUrl,
+          type: 'video/url',
+          size: 0,
+          createdAt: serverTimestamp()
+        });
+      } else {
+        if (!selectedVideoFile) {
+          throw new Error("Veuillez sélectionner un fichier vidéo.");
+        }
+        if (!newVideoName) {
+          throw new Error("Veuillez donner un titre à la vidéo de cours.");
+        }
+        
+        // Size validation for Base64 document size in firestore (1MB document limit)
+        // 750 * 1024 bytes is approx 750KB. Base64 is size * 1.33 = ~1MB.
+        if (selectedVideoFile.size > 750 * 1024) {
+          throw new Error("Fichier trop lourd ! Les vidéos directes stockées sur le cloud doivent faire moins de 750 Ko pour respecter les limites de stockage. Utilisez un lien vidéo ou compressez votre fichier.");
+        }
+
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error("Erreur de lecture du fichier vidéo."));
+          reader.readAsDataURL(selectedVideoFile);
+        });
+
+        await addDoc(collection(db, path), {
+          uid: user.uid,
+          name: newVideoName,
+          content: dataUrl,
+          type: selectedVideoFile.type || 'video/mp4',
+          size: selectedVideoFile.size,
+          createdAt: serverTimestamp()
+        });
+      }
+      
+      handleCloseUrlModal();
+    } catch (err: any) {
+      console.error("Error adding video:", err);
+      setVideoError(err.message || "Une erreur est survenue.");
       handleFirestoreError(err, OperationType.CREATE, path);
     } finally {
       setIsProcessing(false);
@@ -642,14 +689,17 @@ Voici le contenu des documents de cours :\n\n${combinedContent}` }] }],
                     }} className="rounded-xl border-slate-200 text-slate-900 font-bold text-xs uppercase tracking-widest px-8 bg-white hover:bg-slate-50 shadow-sm">
                       Parcourir les fichiers
                     </Button>
-                    {isAdmin && isGlobalMode && (
-                      <Button variant="outline" onClick={() => {
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setVideoSource('file');
                         setIsUrlModalOpen(true);
-                      }} className="rounded-xl border-indigo-250 text-indigo-600 font-bold text-xs uppercase tracking-widest px-6 bg-indigo-50/50 hover:bg-indigo-50 shadow-sm gap-1.5">
-                        <Video className="w-4 h-4" />
-                        Ajouter un lien vidéo
-                      </Button>
-                    )}
+                      }} 
+                      className="rounded-xl border-purple-200 text-purple-600 font-bold text-xs uppercase tracking-widest px-6 bg-purple-50/30 hover:bg-purple-50 shadow-sm gap-1.5"
+                    >
+                      <Video className="w-4 h-4" />
+                      Ajouter une vidéo
+                    </Button>
                   </div>
                 </div>
 
@@ -1345,7 +1395,7 @@ Voici le contenu des documents de cours :\n\n${combinedContent}` }] }],
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 pointer-events-auto"
-            onClick={() => setIsUrlModalOpen(false)}
+            onClick={handleCloseUrlModal}
           >
             <motion.div 
               initial={{ scale: 0.95, y: 10 }}
@@ -1355,44 +1405,147 @@ Voici le contenu des documents de cours :\n\n${combinedContent}` }] }],
               onClick={(e) => e.stopPropagation()}
             >
               <button 
-                onClick={() => setIsUrlModalOpen(false)}
+                onClick={handleCloseUrlModal}
                 className="absolute top-4 right-4 p-1 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all"
               >
                 <X className="w-5 h-5" />
               </button>
               <div className="flex items-center gap-2 mb-4">
                 <Video className="w-5 h-5 text-indigo-600 animate-pulse" />
-                <h3 className="font-display font-black text-slate-900 text-base uppercase tracking-tight">Ajouter un lien vidéo</h3>
+                <h3 className="font-display font-black text-slate-900 text-base uppercase tracking-tight">Ajouter une vidéo</h3>
               </div>
-              <form onSubmit={addVideoByUrl} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Titre de la vidéo</label>
-                  <Input 
-                    placeholder="Ex: Expérience de titration d'acide ou Synthèse de l'eau"
-                    value={newVideoName}
-                    onChange={(e) => setNewVideoName(e.target.value)}
-                    required
-                    className="rounded-xl border-slate-200"
-                  />
+
+              {/* Source Switcher */}
+              <div className="flex bg-slate-100 p-1 rounded-xl mb-5 border border-slate-200/50">
+                <button
+                  type="button"
+                  onClick={() => { setVideoSource('file'); setVideoError(null); }}
+                  className={cn(
+                    "flex-1 py-1.5 text-xs font-bold uppercase rounded-lg transition-all",
+                    videoSource === 'file' 
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" 
+                      : "text-slate-500 hover:text-slate-900"
+                  )}
+                >
+                  Fichier Local
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setVideoSource('url'); setVideoError(null); }}
+                  className={cn(
+                    "flex-1 py-1.5 text-xs font-bold uppercase rounded-lg transition-all",
+                    videoSource === 'url' 
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" 
+                      : "text-slate-500 hover:text-slate-900"
+                  )}
+                >
+                  Lien YouTube / Web
+                </button>
+              </div>
+
+              {videoError && (
+                <div className="p-3 mb-4 text-xs font-semibold rounded-xl bg-rose-50 text-rose-600 border border-rose-100 leading-relaxed">
+                  ⚠️ {videoError}
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">URL de la vidéo (YouTube ou Direct)</label>
-                  <Input 
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={newVideoUrl}
-                    onChange={(e) => setNewVideoUrl(e.target.value)}
-                    required
-                    className="rounded-xl border-slate-200"
-                  />
-                  <p className="text-[9px] text-slate-400 leading-relaxed pt-0.5 font-medium">
-                    Prend en charge les liens vidéo standard YouTube, les partages et les URL directes de vidéos MP4/WEBM.
-                  </p>
-                </div>
+              )}
+
+              <form onSubmit={addVideo} className="space-y-4">
+                {videoSource === 'file' ? (
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Sélectionner la vidéo</label>
+                      <div 
+                        onClick={() => {
+                          const el = document.getElementById('modal-video-input') as HTMLInputElement;
+                          if (el) el.click();
+                        }}
+                        className="border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-6 text-center cursor-pointer hover:bg-slate-50/50 transition-colors group relative"
+                      >
+                        <input 
+                          type="file" 
+                          id="modal-video-input" 
+                          accept="video/*" 
+                          className="hidden" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setSelectedVideoFile(file);
+                            if (file) {
+                              setVideoError(null);
+                              // Auto-fill video title if empty
+                              setNewVideoName(prev => {
+                                if (!prev || prev.trim() === '') {
+                                  return file.name.replace(/\.[^/.]+$/, ""); // Name without extension
+                                }
+                                return prev;
+                              });
+                            }
+                          }}
+                        />
+                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform duration-300 border border-slate-100">
+                          <FileUp className="w-5 h-5 text-slate-400" />
+                        </div>
+                        {selectedVideoFile ? (
+                          <div className="space-y-1">
+                            <p className="text-xs font-bold text-slate-900 truncate max-w-[250px] mx-auto">{selectedVideoFile.name}</p>
+                            <p className="text-[10px] font-medium text-slate-500">{formatSize(selectedVideoFile.size)}</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-0.5">
+                            <p className="text-xs font-bold text-slate-700">Cliquez pour choisir un fichier</p>
+                            <p className="text-[9px] font-medium text-slate-400">MP4, WEBM, MOV (max 750 Ko)</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Titre de la vidéo</label>
+                      <Input 
+                        placeholder="Ex: Expérience de Titration d'Acide"
+                        value={newVideoName}
+                        onChange={(e) => setNewVideoName(e.target.value)}
+                        required
+                        className="rounded-xl border-slate-200"
+                      />
+                    </div>
+                    
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200/50">
+                      💡 Les bases de données cloud limitent la taille d'un document à 1 Mo. Pour de longues démonstrations de cours, privilégiez un lien externe. Pour des minis séquences manipulatoires de votre laptop/tablette, l'import de courts fichiers légers est optimal !
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Titre de la vidéo</label>
+                      <Input 
+                        placeholder="Ex: Expérience de titration d'acide ou Synthèse de l'eau"
+                        value={newVideoName}
+                        onChange={(e) => setNewVideoName(e.target.value)}
+                        required
+                        className="rounded-xl border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">URL de la vidéo (YouTube ou Direct)</label>
+                      <Input 
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        value={newVideoUrl}
+                        onChange={(e) => setNewVideoUrl(e.target.value)}
+                        required
+                        className="rounded-xl border-slate-200"
+                      />
+                      <p className="text-[9px] text-slate-400 leading-relaxed pt-0.5 font-medium">
+                        Prend en charge les liens vidéo standard YouTube, les partages et les URL directes de vidéos MP4/WEBM.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 pt-2">
                   <Button 
                     type="button" 
                     variant="ghost" 
-                    onClick={() => setIsUrlModalOpen(false)}
+                    onClick={handleCloseUrlModal}
                     className="rounded-xl text-xs uppercase font-bold tracking-wider text-slate-500 hover:text-slate-900 h-10"
                   >
                     Annuler

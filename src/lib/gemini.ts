@@ -48,6 +48,7 @@ function mapParamsToRest(params: any) {
 class MockGeminiClient {
   models = {
     generateContent: async (params: any) => {
+      const { signal, ...restParams } = params;
       const isHealthy = await checkBackendHealth();
       
       if (isHealthy) {
@@ -55,7 +56,8 @@ class MockGeminiClient {
         const response = await fetch("/api/gemini/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(params),
+          body: JSON.stringify(restParams),
+          signal,
         });
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
@@ -84,13 +86,14 @@ class MockGeminiClient {
           );
         }
         
-        const { model, restBody } = mapParamsToRest(params);
+        const { model, restBody } = mapParamsToRest(restParams);
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(restBody),
+            signal,
           }
         );
         if (!response.ok) {

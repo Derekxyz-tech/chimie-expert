@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Sparkles, Bot, User as UserIcon, Loader2, Maximize2, Atom, UserCircle, ArrowRight, Star, X, BookOpen, PanelLeftOpen, ChevronDown, FlaskConical, Video, Play } from 'lucide-react';
+import { Send, Sparkles, Bot, User as UserIcon, Loader2, Maximize2, Atom, UserCircle, ArrowRight, Star, X, BookOpen, PanelLeftOpen, ChevronDown, FlaskConical, Video, Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import TextareaAutosize from 'react-textarea-autosize';
@@ -63,6 +63,8 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
   const [loadingMessage, setLoadingMessage] = useState("L'IA réfléchit...");
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentChatIdRef = useRef(chatId);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const lastInputRef = useRef<string>('');
 
   // Effect to rotate loading message
   useEffect(() => {
@@ -228,13 +230,27 @@ export default function ChatInterface({ user, chatId, onChatCreated, isSidebarOp
     }
   };
 
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (lastInputRef.current) {
+      setInput(lastInputRef.current);
+    }
+    setIsLoading(false);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const startingChatId = currentChatIdRef.current;
     const currentInput = input;
+    lastInputRef.current = currentInput;
     setInput('');
     setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     // Optimistic UI update: add user message immediately
     const tempId = 'temp-' + Date.now();
@@ -395,6 +411,7 @@ ${d.content}`;
           ...history,
           { role: "user", parts: [{ text: currentInput }] }
         ],
+        signal: controller.signal,
         config: {
           systemInstruction: `Tu es Chimie Expert, un assistant spécialisé opérant STRICTEMENT ET EXCLUSIVEMENT sur la base des documents de cours fournis dans le CONTEXTE.
           
@@ -507,6 +524,17 @@ ${d.content}`;
       }
 
     } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.message?.includes('aborted') || controller.signal.aborted) {
+        console.log("Chat generation cancelled by the user.");
+        const cancelMsg: Message = {
+          id: Math.random().toString(36).substr(2, 9),
+          role: 'assistant',
+          content: "*Génération annulée par l'utilisateur.*"
+        };
+        setMessages(prev => [...prev, cancelMsg]);
+        return;
+      }
+
       console.error("Error in handleSend:", error);
       
       const errorMessage = error?.message || "";
@@ -531,6 +559,7 @@ ${d.content}`;
       if (currentChatIdRef.current === activeChatId || (startingChatId === null && !currentChatIdRef.current)) {
         setIsLoading(false);
       }
+      abortControllerRef.current = null;
     }
   };
 
@@ -754,13 +783,23 @@ ${d.content}`;
                 maxRows={10}
                 className="flex-1 border-none bg-transparent focus:ring-0 text-slate-800 placeholder-slate-400 py-3.5 resize-none outline-none text-sm font-medium"
               />
-              <Button 
-                onClick={handleSend}
-                disabled={isLoading || !input.trim()}
-                className="bg-slate-900 hover:bg-black text-white disabled:bg-slate-100 disabled:text-slate-400 rounded-full w-9 h-9 flex items-center justify-center p-0 mb-1 transition-all shrink-0 shadow-lg"
-              >
-                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </Button>
+              {isLoading ? (
+                <Button 
+                  onClick={handleCancel}
+                  className="bg-slate-600 hover:bg-slate-700 text-white rounded-lg w-9 h-9 flex items-center justify-center p-0 mb-1 transition-all shrink-0 shadow-lg animate-pulse"
+                  title="Annuler la génération"
+                >
+                  <Square className="w-3.5 h-3.5 fill-white text-white" />
+                </Button>
+              ) : (
+                <Button 
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  className="bg-slate-900 hover:bg-black text-white disabled:bg-slate-100 disabled:text-slate-400 rounded-full w-9 h-9 flex items-center justify-center p-0 mb-1 transition-all shrink-0 shadow-lg"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
