@@ -619,16 +619,9 @@ ${d.content}`;
               <PanelLeftOpen className="w-5 h-5" />
             </Button>
           )}
-          <Button variant="ghost" className="text-slate-500 hover:text-slate-900 hover:bg-slate-100 gap-2 font-bold uppercase tracking-wider text-[11px]">
-            <span>Chimie Expert</span>
-            <ChevronDown className="w-4 h-4" />
-          </Button>
         </div>
         
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 hover:bg-slate-100">
-            <Maximize2 className="w-4 h-4" />
-          </Button>
         </div>
       </header>
 

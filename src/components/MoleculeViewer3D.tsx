@@ -41,6 +41,74 @@ const ATOM_RADII: Record<string, number> = {
   P: 0.5,
 };
 
+function createTextCanvas(text: string, color: string = '#ffffff') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 128, 128);
+    // Draw solid circle backing for high contrast legibility
+    ctx.beginPath();
+    ctx.arc(64, 64, 52, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)'; // slate-900 transparent background
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+
+    // Draw text symbol
+    ctx.font = 'bold 55px "Inter", "Segoe UI", sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 64, 64);
+  }
+  return canvas;
+}
+
+function AtomWithLabel({ atom }: { atom: Atom }) {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const labelRef = useRef<THREE.Group>(null!);
+
+  const textTexture = useMemo(() => {
+    const canvas = createTextCanvas(atom.element, atom.color);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, [atom.element, atom.color]);
+
+  useFrame((state) => {
+    if (labelRef.current) {
+      labelRef.current.quaternion.copy(state.camera.quaternion);
+      
+      const pos = new THREE.Vector3(...atom.position);
+      labelRef.current.position.copy(pos).add(new THREE.Vector3(0, atom.radius + 0.35, 0));
+    }
+  });
+
+  return (
+    <group>
+      <mesh ref={meshRef} position={atom.position}>
+        <sphereGeometry args={[atom.radius, 32, 32]} />
+        <meshStandardMaterial color={atom.color} roughness={0.3} metalness={0.2} />
+      </mesh>
+      <group ref={labelRef}>
+        <mesh renderOrder={100}>
+          <planeGeometry args={[0.5, 0.5]} />
+          <meshBasicMaterial
+            map={textTexture}
+            transparent={true}
+            depthTest={false}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function Molecule({ data }: { data: MoleculeData }) {
   const groupRef = useRef<THREE.Group>(null!);
 
@@ -49,10 +117,7 @@ function Molecule({ data }: { data: MoleculeData }) {
   return (
     <group ref={groupRef}>
       {(data.atoms || []).map((atom, i) => (
-        <mesh key={i} position={atom.position}>
-          <sphereGeometry args={[atom.radius, 32, 32]} />
-          <meshStandardMaterial color={atom.color} roughness={0.3} metalness={0.2} />
-        </mesh>
+        <AtomWithLabel key={i} atom={atom} />
       ))}
       {(data.bonds || []).map((bond, i) => {
         const start = new THREE.Vector3(...(bond.start || [0, 0, 0]));

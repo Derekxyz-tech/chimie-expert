@@ -127,12 +127,13 @@ export function AtomComponent({ atom, isReacting = false, reactionProgress = 0 }
 
       {/* Floating Billboard Text Label */}
       <group ref={labelRef}>
-        <mesh>
+        <mesh renderOrder={100}>
           <planeGeometry args={[0.65, 0.65]} />
           <meshBasicMaterial
             map={textTexture}
             transparent={true}
-            depthTest={true}
+            depthTest={false}
+            depthWrite={false}
             side={THREE.DoubleSide}
           />
         </mesh>
