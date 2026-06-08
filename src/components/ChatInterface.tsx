@@ -454,9 +454,38 @@ ${d.content}`;
           2. Pour TOUTES les formules chimiques et équations, utilise le format LaTeX ($H_2O$, etc.).
           3. Sois précis dans tes explications en synthétisent les informations des documents.
           4. NE CITE PAS le nom des fichiers sources dans ta réponse, SAUF si l'utilisateur te le demande explicitement.
-          5. MODÉLISATION 3D : Si l'utilisateur demande de voir une molécule ou si c'est pertinent, ajoute UNIQUEMENT à la toute fin de ta réponse un bloc [MOLECULE_DATA] avec le JSON suivant : 
-             { "name": "Nom", "formula": "Formule", "nodes": [{"id": 0, "element": "C", "position": [0,0,0]}], "links": [{"source": 0, "target": 1}] }
-             Ne mentionne pas ce bloc dans ton texte verbal.`
+          5. MODÉLISATION 3D : Si l'utilisateur demande de voir une molécule, ou si l'explication fait référence à des atomes ou molécules clés, ajoute UNIQUEMENT à la toute fin de ta réponse un bloc [MOLECULE_DATA]...[/MOLECULE_DATA] strict et valide.
+             RÈGLES ABSOLUES DE MODÉLISATION MULTIPLE ET RIGOUREUSE :
+             - Tu dois obligatoirement inclure TOUTES les molécules et tous les atomes dont tu as parlé dans l'explication. Ne te résigne jamais à une seule si plusieurs sont mentionnées.
+             - Pour éviter toute superposition confuse dans le visualiseur 3D, espace de façon des coordonnées/positions spatiales (axes X, Y, Z). Décale chaque entité chimique d'au moins 2.5 à 3.0 unités par rapport aux autres (ex: entité A centrée à [-2.0, 0.5, 0], entité B centrée à [2.0, -0.5, 0]).
+             - Chaque atome/noeud doit posséder un "id" unique sous forme de nombre entier incrémental (0, 1, 2, 3...).
+             - Les liens ("links") doivent lier rigoureusement les bonnes sources et cibles d'IDs (par exemple, "source": 0, "target": 1). Aucun lien orphelin n'est toléré.
+             - Le JSON doit être syntaxiquement parfait, sans virgule finale en trop, et avec des guillemets doubles réglementaires.
+             - N'oublie jamais la balise fermante [/MOLECULE_DATA] à la toute fin pour garantir l'extraction.
+             
+             Exemple de format valide :
+             [MOLECULE_DATA]
+             {
+               "name": "Synthèse de l'eau (Réactifs et Produits)",
+               "formula": "2H2 + O2 -> 2H2O",
+               "nodes": [
+                 { "id": 0, "element": "H", "position": [-3.0, 0.5, 0] },
+                 { "id": 1, "element": "H", "position": [-2.0, 0.5, 0] },
+                 { "id": 2, "element": "O", "position": [0.0, 0.0, 0] },
+                 { "id": 3, "element": "O", "position": [0.0, 1.0, 0] },
+                 { "id": 4, "element": "O", "position": [3.0, 0.0, 0] },
+                 { "id": 5, "element": "H", "position": [3.7, -0.4, 0] },
+                 { "id": 6, "element": "H", "position": [2.3, -0.4, 0] }
+               ],
+               "links": [
+                 { "source": 0, "target": 1 },
+                 { "source": 2, "target": 3 },
+                 { "source": 4, "target": 5 },
+                 { "source": 4, "target": 6 }
+               ]
+             }
+             [/MOLECULE_DATA]
+             Ne mentionne jamais ce bloc de données [MOLECULE_DATA] dans ton texte verbal, génère-le simplement discrètement à la fin.`
         }
       });
 
