@@ -9,8 +9,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Menu, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, onAuthStateChanged, User, db } from './lib/firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { auth, onAuthStateChanged, User, db, handleFirestoreError, OperationType } from './lib/firebase';
+import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 
 export type ViewType = 'chat' | 'notes' | 'teacher' | 'quiz';
 
@@ -72,6 +72,19 @@ export default function App() {
 
     return () => unsubscribe();
   }, [user]);
+
+  const handleDeleteChat = async (chatId: string) => {
+    if (!user) return;
+    const path = `users/${user.uid}/chats/${chatId}`;
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/chats`, chatId));
+      if (currentChatId === chatId) {
+        setCurrentChatId(null);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  };
 
   // Handle window resize for responsiveness
   useEffect(() => {
@@ -160,6 +173,7 @@ export default function App() {
             setCurrentChatId(id);
             setCurrentView('chat');
           }}
+          onDeleteChat={handleDeleteChat}
         />
         
         <main className="flex-1 relative flex flex-col min-w-0 h-full overflow-hidden">

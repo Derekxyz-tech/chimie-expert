@@ -118,7 +118,7 @@ export default function CourseNotes({ user, isSidebarOpen, onToggleSidebar }: Co
   const [isQuizComplete, setIsQuizComplete] = useState<boolean>(false);
   const [expandedSolutions, setExpandedSolutions] = useState<Record<number, boolean>>({});
 
-  const isAdmin = user?.email && ["ghostytb77777@gmail.com", "christianst731@gmail.com", "cyrillealexandrinahall@gmail.com"].includes(user.email);
+  const isAdmin = user?.email && ["ghostytb77777@gmail.com", "christianst731@gmail.com", "cyrillealexandrinahall@gmail.com", "derekoriol049@gmail.com"].includes(user.email);
   const files = isGlobalMode ? globalFiles : personalFiles;
 
   // Load personal files

@@ -16,7 +16,9 @@ import {
   ChevronDown,
   ChevronUp,
   FlaskConical,
-  Loader2
+  Loader2,
+  Trash2,
+  Check
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -44,6 +46,7 @@ interface SidebarProps {
   chatHistory?: ChatHistoryItem[];
   currentChatId?: string | null;
   onChatSelect?: (id: string) => void;
+  onDeleteChat?: (id: string) => void;
 }
 
 export default function Sidebar({ 
@@ -55,7 +58,8 @@ export default function Sidebar({
   onNewChat,
   chatHistory = [],
   currentChatId,
-  onChatSelect
+  onChatSelect,
+  onDeleteChat
 }: SidebarProps) {
   const [showLogout, setShowLogout] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -203,6 +207,7 @@ To fix this:
                             label={chat.title} 
                             active={currentChatId === chat.id}
                             onClick={() => onChatSelect?.(chat.id)}
+                            onDelete={() => onDeleteChat?.(chat.id)}
                             iconColor="text-slate-400" 
                           />
                         </motion.div>
@@ -355,14 +360,18 @@ function SidebarItem({
   label, 
   active, 
   onClick,
+  onDelete,
   iconColor = "text-slate-400"
 }: { 
   icon: any, 
   label: string, 
   active?: boolean, 
   onClick?: () => void,
+  onDelete?: () => void,
   iconColor?: string
 }) {
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Clean label from LaTeX and Markdown for display
   const cleanLabel = useMemo(() => {
     return label
@@ -371,22 +380,83 @@ function SidebarItem({
       .trim();
   }, [label]);
 
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDeleting) {
+      onDelete?.();
+      setIsDeleting(false);
+    } else {
+      setIsDeleting(true);
+    }
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDeleting(false);
+  };
+
+  const handleMouseLeave = () => {
+    if (isDeleting) {
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <Button 
-      variant="ghost" 
-      onClick={onClick}
-      className={cn(
-        "w-full justify-start gap-3 h-10 px-3 rounded-xl transition-all duration-200 group relative",
-        active 
-          ? "bg-slate-100 text-slate-900" 
-          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+    <div onMouseLeave={handleMouseLeave} className="relative group/item w-full">
+      <Button 
+        variant="ghost" 
+        onClick={onClick}
+        disabled={isDeleting}
+        className={cn(
+          "w-full justify-start gap-3 h-10 pl-3 pr-10 rounded-xl transition-all duration-200 relative",
+          active 
+            ? "bg-slate-100 text-slate-900" 
+            : "text-slate-600 hover:text-slate-900 hover:bg-slate-50",
+          isDeleting && "bg-rose-50/50 text-rose-600 hover:bg-rose-50/50"
+        )}
+      >
+        <Icon className={cn("w-4 h-4 shrink-0 transition-colors", active ? iconColor : "text-slate-400 group-hover:text-slate-600")} />
+        <span className="text-sm font-bold truncate flex-1 text-left">
+          {isDeleting ? "Supprimer ce chat ?" : cleanLabel}
+        </span>
+        {active && !isDeleting && (
+          <div className="absolute left-0 top-2 bottom-2 w-0.5 bg-indigo-600 rounded-r-full" />
+        )}
+      </Button>
+
+      {onDelete && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 shrink-0">
+          {isDeleting ? (
+            <>
+              <button
+                onClick={handleDeleteClick}
+                className="w-5 h-5 rounded bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center transition-all shadow-sm"
+                title="Confirmer la suppression"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleCancelDelete}
+                className="w-5 h-5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center transition-all"
+                title="Annuler"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleDeleteClick}
+              className={cn(
+                "w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-100 transition-all opacity-0 group-hover/item:opacity-100",
+                active && "opacity-60"
+              )}
+              title="Supprimer le chat"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       )}
-    >
-      <Icon className={cn("w-4 h-4 shrink-0 transition-colors", active ? iconColor : "text-slate-400 group-hover:text-slate-600")} />
-      <span className="text-sm font-bold truncate flex-1 text-left">{cleanLabel}</span>
-      {active && (
-        <div className="absolute left-0 top-2 bottom-2 w-0.5 bg-indigo-600 rounded-r-full" />
-      )}
-    </Button>
+    </div>
   );
 }
